@@ -1,22 +1,16 @@
-# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .pytest_cache/
-
-# Environments
 .venv/
 venv/
 env/
-
-# IDE/Editor
 .idea/
 .vscode/
-
-# OS
 .DS_Store
 Thumbs.db
-
-# App cache (if created under repo)
 photo_viewer_cache/
+node_modules/
+dist/
+.vite/
