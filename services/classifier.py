@@ -54,6 +54,38 @@ def group_by_desc_segments(items: List[Dict[str, Any]]) -> Dict[str, List[Dict[s
             res.setdefault(p, []).append(it)
     return res
 
+def group_by_tags(items: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    res: Dict[str, List[Dict[str, Any]]] = {}
+    for it in items:
+        tags: List[str] = []
+        iptc = it.get("iptc") or {}
+        kw = iptc.get("Keywords") or iptc.get("keywords")
+        if isinstance(kw, list):
+            for v in kw:
+                s = str(v).strip()
+                if s:
+                    tags.append(s)
+        elif isinstance(kw, str) and kw.strip():
+            for p in re.split(r"[;，,;|/]+", kw):
+                q = p.strip()
+                if q:
+                    tags.append(q)
+        exif = it.get("exif") or {}
+        xp = exif.get("XPKeywords")
+        if isinstance(xp, str) and xp.strip():
+            for p in re.split(r"[;，,;|/]+", xp):
+                q = p.strip()
+                if q:
+                    tags.append(q)
+        seen = set()
+        for t in tags:
+            k = t.lower()
+            if k in seen:
+                continue
+            seen.add(k)
+            res.setdefault(t, []).append(it)
+    return res
+
 def _parse_dt_from_filename(path: str) -> Optional[float]:
     base = os.path.basename(path)
     m = re.search(r"(20\d{6})(\d{6})", base)

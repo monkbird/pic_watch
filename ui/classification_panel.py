@@ -12,7 +12,7 @@ class ClassificationPanel(QtWidgets.QWidget):
         super().__init__()
         self.items: List[Dict[str, Any]] = []
         self.mode_box = QtWidgets.QComboBox()
-        self.mode_box.addItems(["文件夹", "时间", "年份", "备注"])
+        self.mode_box.addItems(["文件夹", "时间", "年份", "备注", "标签"])
         self.tree = QtWidgets.QTreeWidget()
         self.tree.setHeaderLabels(["分组", "数量"])
         lay = QtWidgets.QVBoxLayout(self)
@@ -42,6 +42,8 @@ class ClassificationPanel(QtWidgets.QWidget):
             self._build_by_year()
         elif mode == "备注":
             self._build_by_desc_segments()
+        elif mode == "标签":
+            self._build_by_tags()
         self._apply_header_style()
         self._apply_widths()
 
@@ -151,6 +153,46 @@ class ClassificationPanel(QtWidgets.QWidget):
             parts = clean
             for p in parts:
                 groups.setdefault(p, []).append(it)
+        for k in sorted(groups.keys()):
+            lst = groups[k]
+            node = QtWidgets.QTreeWidgetItem([k, str(len(lst))])
+            node.setData(0, QtCore.Qt.ItemDataRole.UserRole, lst)
+            node.setTextAlignment(1, QtCore.Qt.AlignmentFlag.AlignCenter)
+            self.tree.addTopLevelItem(node)
+
+    def _build_by_tags(self):
+        groups: Dict[str, List[Dict[str, Any]]] = {}
+        for it in self.items:
+            tags: List[str] = []
+            iptc = it.get("iptc") or {}
+            kw = iptc.get("Keywords") or iptc.get("keywords")
+            if isinstance(kw, list):
+                for v in kw:
+                    s = str(v).strip()
+                    if s:
+                        tags.append(s)
+            elif isinstance(kw, str) and kw.strip():
+                for p in re.split(r"[;，,;|/]+", kw):
+                    q = p.strip()
+                    if q:
+                        tags.append(q)
+            exif = it.get("exif") or {}
+            xp = exif.get("XPKeywords")
+            if isinstance(xp, str) and xp.strip():
+                for p in re.split(r"[;，,;|/]+", xp):
+                    q = p.strip()
+                    if q:
+                        tags.append(q)
+            seen = set()
+            uniq: List[str] = []
+            for t in tags:
+                k = t.lower()
+                if k in seen:
+                    continue
+                seen.add(k)
+                uniq.append(t)
+            for t in uniq:
+                groups.setdefault(t, []).append(it)
         for k in sorted(groups.keys()):
             lst = groups[k]
             node = QtWidgets.QTreeWidgetItem([k, str(len(lst))])

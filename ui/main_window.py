@@ -171,7 +171,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def on_export_groups(self):
         if not self.items:
             return
-        from services.classifier import group_by_folder, group_by_time, group_by_year, group_by_desc_segments, export_groups
+        from services.classifier import group_by_folder, group_by_time, group_by_year, group_by_desc_segments, group_by_tags, export_groups
         mode = self.class_panel.mode_box.currentText()
         if mode == "文件夹":
             groups = group_by_folder(self.items)
@@ -181,6 +181,8 @@ class MainWindow(QtWidgets.QMainWindow):
             groups = group_by_year(self.items)
         elif mode == "备注":
             groups = group_by_desc_segments(self.items)
+        elif mode == "标签":
+            groups = group_by_tags(self.items)
         path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "保存分组", self.root or "", "JSON (*.json)")
         if path:
             export_groups(groups, path)
