@@ -1,4 +1,4 @@
-# PicWatch Web
+# PicWatch 桌面版（Electron + React + Vite）
 
 ## 功能概览
 - 浏览与分组查看图片（JPG/PNG/WEBP/TIFF/HEIC 等）
@@ -10,29 +10,31 @@
 
 ## 环境与安装
 - Node.js 18+
-- 安装依赖：
-  - `npm install`
+- 安装依赖：`npm install`
 
 ## 开发与构建
-- 启动开发：
+- Web 开发：
   - `npm run dev`
   - 打开 `http://localhost:5173/`
+- 桌面开发（Electron）：
+  - `npm run electron:dev`
+  - 自动启动 Vite 与 Electron，加载开发页面
 - 生产构建：
-  - `npm run build`
-  - 本地预览：`npm run preview`
+  - Web：`npm run build`
+  - 桌面安装包：`npm run electron:build`（输出在 `dist-electron/`）
 
 ## 使用说明
-- 点击“打开文件夹”选择图片目录（浏览器目录选择）
-- 支持分组查看与筛选；右上搜索支持文件名与备注字段
+- 打开文件夹后进行分组浏览与筛选；搜索支持文件名与备注字段
 - 导出分组：右上“导出分组 JSON”
 
 ## 目录结构
-- `src/`：React 组件与工具（不可直接修改：`src/components`、`src/utils`、`src/App.jsx`）
-- `index.html`、`vite.config.js`、`tailwind.config.js`：前端配置
+- `src/`：React 组件与工具（按要求保持不修改：`src/components`、`src/utils`、`src/App.jsx`）
+- `electron/`：主进程与预加载脚本
+- `index.html`、`vite.config.js`、`tailwind.config.js`：配置
 - `package.json`：依赖与脚本
 
 ## 说明
-- 旧版 Python 端（PySide6 GUI / CLI 扫描）已移除，不再需要 Python 运行环境与依赖
+- 旧版 Python 端（PySide6 GUI / CLI 扫描）已移除；不再需要 Python 依赖与脚本
 
 ## 许可证
 - 默认未设置许可证；如需开源请在仓库中添加 LICENSE 文件。
