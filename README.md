@@ -1,59 +1,38 @@
-# 照片查看工具
+# PicWatch Web
 
 ## 功能概览
-- 批量/单张查看图片（JPEG/PNG/TIFF/WEBP/HEIF/HEIC 等）
-- 读取元数据（EXIF、IPTC、尺寸、文件信息），生成 `metadata.json`
-- 分组与筛选：文件夹、时间、年份、备注（按图像描述拆分片段）
-- 卡片网格视图：固定3列、响应式卡片宽度、信息显示（格式/尺寸/大小/日期）
-- 操作：双击查看大图、复制路径、打开属性/所在文件夹、删除到回收站
-- 性能：缩略图缓存（按尺寸桶）、异步生成、虚拟化渲染（仅视口渲染）
+- 浏览与分组查看图片（JPG/PNG/WEBP/TIFF/HEIC 等）
+- 提取并显示元数据（EXIF/IPTC/尺寸/文件信息）
+- 分组：按“文件夹 / 日期 / 年份 / 备注 / 类型”
+- 搜索与筛选：格式、最小宽度、关键字
+- 卡片网格 + 详情面板 + 大图查看
+- 导出分组为 JSON
 
 ## 环境与安装
-- Python 3.9+
-- 依赖安装：
-  - `pip install -r requirements.txt`
-  - 可选开发工具：`pip install -r requirements-dev.txt`
+- Node.js 18+
+- 安装依赖：
+  - `npm install`
 
-## 启动与使用
-- 桌面应用：
-  - `python app.py gui`
-  - 顶部工具栏：选择文件夹、导出分组、日志、搜索/过滤、刷新
-- 命令行扫描：
-  - `python app.py scan <图片目录> --output <输出路径>`
+## 开发与构建
+- 启动开发：
+  - `npm run dev`
+  - 打开 `http://localhost:5173/`
+- 生产构建：
+  - `npm run build`
+  - 本地预览：`npm run preview`
 
-## 视图与分组
-- 左侧分组面板：文件夹/时间/年份/备注（数量列居中、7:3 列宽）
-- 右侧卡片网格：固定每行3张，卡片随窗口宽度伸缩；分组/筛选后滚动条重置到顶部
-- 状态栏：显示“已选 X / 总计 Y”；复制/删除后反馈结果
-
-## 快捷键与右键菜单
-- 双击：打开大图查看器
-- Ctrl+C：复制已选图片路径（含文件 URL）
-- Delete：删除已选到回收站（带确认）
-- 右键菜单：
-  - 单选：打开大图/查看属性/打开所在文件夹/复制选中/删除选中
-  - 多选：复制选中/删除选中
-
-## 格式支持与元数据
-- 图片：`JPEG/PNG/TIFF/WEBP/HEIF/HEIC`（HEIF 需 `pillow-heif`）
-- EXIF：`DateTimeOriginal/DateTime/XP*` 等，带编码识别与重解码
-- IPTC：Caption/ObjectName/Keywords 等
-- TIFF：页数与标签（tifffile）
-
-## 性能说明
-- 缩略图写入采用原子替换（先写临时文件再替换）防止读未完成文件
-- 缩略图尺寸桶与 `LANCZOS` 采样，提升清晰度并减少重复生成
-- 只渲染视口可见卡片，滚动/窗口变化防抖（150ms）
-
-## 已知问题与建议
-- 超大目录下可适度降低并发（默认3），或增加缓存清理
-- HEIF 支持取决于系统库与 `pillow-heif` 版本
+## 使用说明
+- 点击“打开文件夹”选择图片目录（浏览器目录选择）
+- 支持分组查看与筛选；右上搜索支持文件名与备注字段
+- 导出分组：右上“导出分组 JSON”
 
 ## 目录结构
-- `app.py`：入口（CLI 与 GUI）
-- `ui/`：界面（分组、网格、卡片、预览、属性等）
-- `services/`：扫描与元数据、分组逻辑
-- `utils/`：缩略图缓存与后台队列、系统属性/删除、日志
+- `src/`：React 组件与工具（不可直接修改：`src/components`、`src/utils`、`src/App.jsx`）
+- `index.html`、`vite.config.js`、`tailwind.config.js`：前端配置
+- `package.json`：依赖与脚本
+
+## 说明
+- 旧版 Python 端（PySide6 GUI / CLI 扫描）已移除，不再需要 Python 运行环境与依赖
 
 ## 许可证
 - 默认未设置许可证；如需开源请在仓库中添加 LICENSE 文件。
