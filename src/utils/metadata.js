@@ -56,30 +56,32 @@ export const extractMetadata = async (fileOrPathObj) => {
   
   // 标准化基础属性
   let fileInput; 
-  let name, path, size, lastModified, parent;
+  let name, pathStr, size, lastModified, parent;
   let thumbnailSrc;
 
   if (isElectron) {
     // Electron 模式: fileOrPathObj 是 main.js 返回的 { name, path, size, lastModified, parent }
     name = fileOrPathObj.name;
-    path = fileOrPathObj.path; // 绝对路径
+    pathStr = fileOrPathObj.path; // 绝对路径
     size = fileOrPathObj.size;
     lastModified = fileOrPathObj.lastModified;
     parent = fileOrPathObj.parent;
     
     // 1. 获取缩略图 URL (直接使用 file:// 协议)
-    thumbnailSrc = `file://${path}`;
+    thumbnailSrc = `file://${pathStr}`;
     
-    // 2. 读取 Buffer 用于 exifr 解析
+    // 2. [优化] 读取 Buffer 用于 exifr 解析
+    // 只读取前 256KB，通常足够解析 EXIF/IPTC，极大提升大文件导入速度
     try {
-      fileInput = await window.electron.readFile(path);
+      const CHUNK_SIZE = 256 * 1024; // 256KB
+      fileInput = await window.electron.readPartialFile(pathStr, CHUNK_SIZE);
     } catch (e) {
-      console.error("Electron read file error:", e);
+      console.error("Electron read partial file error:", e);
     }
   } else {
     // Web 模式: fileOrPathObj 是 File 对象
     name = fileOrPathObj.name;
-    path = fileOrPathObj.webkitRelativePath || fileOrPathObj.name;
+    pathStr = fileOrPathObj.webkitRelativePath || fileOrPathObj.name;
     size = fileOrPathObj.size;
     lastModified = fileOrPathObj.lastModified;
     parent = (fileOrPathObj.webkitRelativePath || '').split('/').slice(0, -1).join('/') || '根目录';
@@ -90,7 +92,7 @@ export const extractMetadata = async (fileOrPathObj) => {
   const result = {
     id: `file-${name}-${lastModified}-${Math.random()}`,
     name,
-    path, // 在 Electron 中这是绝对路径
+    path: pathStr, // 在 Electron 中这是绝对路径
     parent,
     size,
     type: 'image', // 简化
@@ -171,18 +173,37 @@ export const extractMetadata = async (fileOrPathObj) => {
       result.exif.FNumber = exif.FNumber;
       result.exif.ExposureTime = exif.ExposureTime;
       result.exif.ISOSpeedRatings = exif.ISOSpeedRatings;
+
+      // [优化] 尝试从 Metadata 直接获取尺寸
+      // 这比 new Image() 加载解码快得多
+      const metaW = exif.ExifImageWidth || ifd0.ImageWidth || exif.PixelXDimension;
+      const metaH = exif.ExifImageHeight || ifd0.ImageHeight || exif.PixelYDimension;
+      if (metaW && metaH) {
+        result.dims = { w: metaW, h: metaH };
+      }
     }
 
-    // 获取尺寸 (Electron 和 Web 使用相同方式加载 Image 对象)
-    result.dims = await new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => resolve({ w: img.width, h: img.height });
-      img.onerror = () => resolve({ w: 0, h: 0 });
-      img.src = thumbnailSrc;
-    });
+    // 如果 Metadata 中没有尺寸，才回退到加载图片获取 (较慢)
+    if (result.dims.w === 0) {
+      result.dims = await new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve({ w: img.width, h: img.height });
+        img.onerror = () => resolve({ w: 0, h: 0 });
+        img.src = thumbnailSrc;
+      });
+    }
 
   } catch (error) {
     console.error("Metadata error:", error);
+    // 即使出错，至少尝试获取尺寸
+    if (result.dims.w === 0) {
+        result.dims = await new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve({ w: img.width, h: img.height });
+            img.onerror = () => resolve({ w: 0, h: 0 });
+            img.src = thumbnailSrc;
+        });
+    }
   }
 
   return result;

@@ -1,8 +1,31 @@
 import React from 'react';
 import { Image as ImageIcon } from 'lucide-react';
-import { humanSize, formatDate } from '../utils/metadata';
+import { formatDate } from '../utils/metadata';
 
 const PhotoCard = ({ file, selected, onSelect, onDoubleClick, onContextMenu }) => {
+  
+  // 获取底部显示的标签内容
+  // 规则：显示备注(ImageDescription)中，第二层级的内容
+  // 例如：工程项目_165万方砂石料外运2024_日常巡查 -> 165万方砂石料外运2024
+  const getDisplayLabel = () => {
+    const remark = file.exif?.ImageDescription;
+    
+    if (remark) {
+      const parts = remark.split('_');
+      // 如果能分割出至少2个部分，取第2个部分 (索引1)
+      if (parts.length >= 2) {
+        return parts[1];
+      }
+      // 否则显示完整备注
+      return remark;
+    }
+    
+    // 如果没有备注，回退显示文件夹名称
+    return file.parent;
+  };
+
+  const displayLabel = getDisplayLabel();
+
   return (
     <div 
       onClick={(e) => {
@@ -36,9 +59,9 @@ const PhotoCard = ({ file, selected, onSelect, onDoubleClick, onContextMenu }) =
           <ImageIcon className="w-8 h-8 text-slate-300" />
         )}
         
-        <div className={`absolute inset-x-0 bottom-0 bg-black/60 p-1.5 backdrop-blur-[2px] transition-opacity duration-200 flex justify-between items-center text-[10px] text-white/90 font-medium ${selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-          <span>{file.extension.toUpperCase()}</span>
-          <span>{humanSize(file.size)}</span>
+        {/* 底部遮罩：显示提取后的项目名称 */}
+        <div className={`absolute inset-x-0 bottom-0 bg-black/60 p-1.5 backdrop-blur-[2px] transition-opacity duration-200 flex justify-center items-center text-[10px] text-white/90 font-medium ${selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+          <span className="truncate max-w-full px-1" title={displayLabel}>{displayLabel}</span>
         </div>
       </div>
 
