@@ -22,6 +22,11 @@
 - 生产构建：
   - Web：`npm run build`
   - 桌面安装包：`npm run electron:build`（输出在 `dist-electron/`）
+ - Linux（UOS）构建：
+   - 在 Windows 下已生成 `linux-unpacked`，并提供压缩包下载（见下方“发布与下载”）
+   - 如需标准 `AppImage`/`deb`，建议在 Linux 环境运行：
+     - `npx electron-builder --linux AppImage`
+     - `npx electron-builder --linux deb`
 
 ## 使用说明
 - 打开文件夹后进行分组浏览与筛选；搜索支持文件名与备注字段
@@ -41,6 +46,13 @@
   - 完善文档与使用说明
   - 明确 Electron 构建输出目录 `dist-electron/`
   - 补充开发与构建脚本说明
+  - 新增 UOS/Linux 压缩包发布（`PicWatch-1.0.1-linux-x64.tar.gz`）
+
+## 发布与下载
+- Release 页面：`https://github.com/monkbird/pic_watch/releases/tag/v1.0.1`
+- Windows：`PicWatch Setup 1.0.1.exe`
+- UOS/Linux：`PicWatch-1.0.1-linux-x64.tar.gz`
+  - 使用：解压后在目录执行 `chmod +x picwatch && ./picwatch`
 
 ## 许可证
 - 默认未设置许可证；如需开源请在仓库中添加 LICENSE 文件。
