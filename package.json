@@ -43,6 +43,12 @@
       "dist/**/*",
       "electron/**/*"
     ],
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Graphics"
+    },
     "win": {
       "target": "nsis"
     }
