@@ -49,7 +49,7 @@
   - 新增 UOS/Linux 压缩包发布（`PicWatch-1.0.1-linux-x64.tar.gz`）
 
 ## 发布与下载
-- Release 页面：`https://github.com/monkbird/pic_watch/releases/tag/v1.0.1`
+- Release 页面：`https://github.com/monkbird/pic_watch/releases/latest`
 - Windows：`PicWatch Setup 1.0.1.exe`
 - UOS/Linux：`PicWatch-1.0.1-linux-x64.tar.gz`
   - 使用：解压后在目录执行 `chmod +x picwatch && ./picwatch`
