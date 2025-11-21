@@ -8,6 +8,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 允许扫描的图片扩展名
 const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.heic']);
 
+// === 性能优化：强制开启 GPU 加速 ===
+// 忽略 GPU 黑名单，强制开启硬件加速
+app.commandLine.appendSwitch('ignore-gpu-blacklist');
+// 开启 GPU 光栅化 (渲染加速)
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+// 开启零拷贝 (减少内存到显存的复制)
+app.commandLine.appendSwitch('enable-zero-copy');
+// 尝试请求高性能 GPU (适用于双显卡笔记本，优先调用独显)
+app.commandLine.appendSwitch('force_high_performance_gpu');
+// 增加渲染进程的显存限制 (默认可能较小)
+app.commandLine.appendSwitch('max-active-webgl-contexts', '100'); 
+
 let mainWindow;
 
 function createWindow() {
@@ -18,7 +30,9 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: false // 允许加载本地 file:// 图片资源
+      webSecurity: false, // 允许加载本地 file:// 图片资源
+      // 开启后台节流限制 (可选，设为 false 可能提高后台处理速度但增加功耗)
+      backgroundThrottling: false 
     },
     autoHideMenuBar: true
   });
@@ -85,27 +99,12 @@ function createLinuxUriList(paths) {
   return Buffer.from(uris, 'utf8');
 }
 
-
-// --- IPC Handlers (前后端通信) ---
-
-// 1. 选择文件夹并扫描 (支持区分多文件夹导入)
-ipcMain.handle('dialog:openDirectory', async () => {
-  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openDirectory']
-  });
-
-  if (canceled || filePaths.length === 0) {
-    return null;
-  }
-
-  const rootPath = filePaths[0];
+// --- 通用扫描逻辑 ---
+async function scanDirectoryFiles(rootPath) {
   const files = [];
-
   // 预先处理根目录路径，作为统一的 Group Key
-  // 将反斜杠统一为正斜杠，确保跨平台一致性
   const groupKey = rootPath.split(path.sep).join('/');
 
-  // 递归扫描文件
   async function scanDir(currentPath) {
     try {
       const entries = await fs.readdir(currentPath, { withFileTypes: true });
@@ -117,11 +116,10 @@ ipcMain.handle('dialog:openDirectory', async () => {
           const ext = path.extname(entry.name).toLowerCase();
           if (ALLOWED_EXTENSIONS.has(ext)) {
             const stats = await fs.stat(fullPath);
-            
             files.push({
               name: entry.name,
               path: fullPath, // 绝对路径
-              parent: groupKey, // <--- 统一使用导入根目录作为分组依据
+              parent: groupKey, // 扁平化分组：使用导入根目录名
               size: stats.size,
               lastModified: stats.mtimeMs
             });
@@ -135,10 +133,34 @@ ipcMain.handle('dialog:openDirectory', async () => {
 
   await scanDir(rootPath);
   return files;
+}
+
+
+// --- IPC Handlers (前后端通信) ---
+
+// 1. 选择文件夹并扫描 (返回 { rootPath, files })
+ipcMain.handle('dialog:openDirectory', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory']
+  });
+
+  if (canceled || filePaths.length === 0) {
+    return null;
+  }
+
+  const rootPath = filePaths[0];
+  const files = await scanDirectoryFiles(rootPath);
+  
+  return { rootPath, files };
 });
 
-// 2. 读取文件 Buffer (供 exifr 解析元数据)
-// [优化] 增加 partial 读取接口，避免读取大文件全部内容
+// [新增] 2. 重新扫描指定目录 (用于刷新)
+ipcMain.handle('fs:scanDirectory', async (event, rootPath) => {
+  if (!rootPath) return [];
+  return await scanDirectoryFiles(rootPath);
+});
+
+// 3. 读取文件 Buffer (供 exifr 解析元数据)
 ipcMain.handle('fs:readPartialFile', async (event, { filePath, size }) => {
   let fh;
   try {
@@ -154,7 +176,6 @@ ipcMain.handle('fs:readPartialFile', async (event, { filePath, size }) => {
   }
 });
 
-// 保留全量读取接口作为后备 (虽然目前主要用 partial)
 ipcMain.handle('fs:readFile', async (event, filePath) => {
   try {
     return await fs.readFile(filePath);
@@ -164,12 +185,12 @@ ipcMain.handle('fs:readFile', async (event, filePath) => {
   }
 });
 
-// 3. 打开所在文件夹
+// 4. 打开所在文件夹
 ipcMain.handle('shell:showItemInFolder', (event, filePath) => {
   shell.showItemInFolder(filePath);
 });
 
-// 4. 复制文件实体到剪贴板 (原生文件复制)
+// 5. 复制文件实体到剪贴板 (原生文件复制)
 ipcMain.handle('clipboard:copyFiles', (event, filePaths) => {
   if (!filePaths || filePaths.length === 0) return;
   

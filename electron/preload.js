@@ -4,10 +4,13 @@ contextBridge.exposeInMainWorld('electron', {
   // 打开文件夹选择并扫描
   selectDirectory: () => ipcRenderer.invoke('dialog:openDirectory'),
   
+  // [新增] 扫描指定路径 (不打开对话框)
+  scanDirectory: (path) => ipcRenderer.invoke('fs:scanDirectory', path),
+
   // 读取文件内容 (Buffer) - 全量
   readFile: (path) => ipcRenderer.invoke('fs:readFile', path),
 
-  // [新增] 读取部分文件内容 (用于快速提取元数据)
+  // 读取部分文件内容 (用于快速提取元数据)
   readPartialFile: (path, size) => ipcRenderer.invoke('fs:readPartialFile', { filePath: path, size }),
   
   // 在资源管理器中显示

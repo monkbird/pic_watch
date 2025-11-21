@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { 
   Folder, Image as ImageIcon, Search, List, Info, Maximize2, Trash2, Grid, 
-  RefreshCw, Download, ChevronRight, FolderOpen, Copy 
+  RefreshCw, Download, ChevronRight, FolderOpen, Copy, RotateCw, XCircle
 } from 'lucide-react';
 
 import Sidebar from './components/Sidebar';
@@ -21,8 +21,10 @@ export default function App() {
   const [groupMode, setGroupMode] = useState('folder');
   const [selectedGroup, setSelectedGroup] = useState(null);
   
+  const [importedPaths, setImportedPaths] = useState(new Set());
+  
   const [searchQuery, setSearchQuery] = useState('');
-  const [filters, setFilters] = useState({ format: 'all', minWidth: 0 });
+  const [filters, setFilters] = useState({ minWidth: 0 });
   
   const [showDetails, setShowDetails] = useState(true);
   const [viewerFile, setViewerFile] = useState(null);
@@ -33,47 +35,76 @@ export default function App() {
   const contextMenuTimerRef = useRef(null);
 
   // === 通用的文件处理与导入逻辑 ===
-  const processFiles = async (newFilesInput) => {
+  const processFiles = async (newFilesInput, updateMode = false) => {
     const BATCH = 20;
-    const existingPaths = new Set(files.map(f => f.path));
+    const existingFileMap = new Map(files.map(f => [f.path, f]));
     let addedCount = 0;
-    let newFiles = [];
+    let processedFiles = [];
 
     for (let i = 0; i < newFilesInput.length; i += BATCH) {
       const chunk = newFilesInput.slice(i, i + BATCH);
-      
-      const processed = await Promise.all(chunk.map(async (f) => {
+      const chunkProcessed = await Promise.all(chunk.map(async (f) => {
+        const path = f.path || (f.webkitRelativePath || f.name);
+        if (updateMode && existingFileMap.has(path)) {
+          return existingFileMap.get(path);
+        }
         const metadata = await extractMetadata(f);
-        return { 
-          ...metadata, 
-          fileObj: (f instanceof File ? f : null) 
-        };
+        return { ...metadata, fileObj: (f instanceof File ? f : null) };
       }));
       
-      const uniqueFiles = processed.filter(f => !existingPaths.has(f.path));
+      processedFiles.push(...chunkProcessed);
       
-      if (uniqueFiles.length > 0) {
-        uniqueFiles.forEach(f => existingPaths.add(f.path));
-        newFiles = [...newFiles, ...uniqueFiles];
-        addedCount += uniqueFiles.length;
+      if (!updateMode) {
+        const newUnique = chunkProcessed.filter(f => !existingFileMap.has(f.path));
+        if (newUnique.length > 0) {
+          newUnique.forEach(f => existingFileMap.set(f.path, f));
+          setFiles(prev => [...prev, ...newUnique]);
+          addedCount += newUnique.length;
+        }
       }
-
-      setFiles(prev => [...prev, ...uniqueFiles]);
+      
       await new Promise(r => setTimeout(r, 20));
     }
+
+    if (updateMode) {
+      setFiles(processedFiles);
+      addedCount = processedFiles.length - existingFileMap.size;
+    }
+
     return addedCount;
   };
 
   const handleElectronImport = async () => {
     setIsScanning(true);
     try {
-      const rawFiles = await window.electron.selectDirectory();
-      if (rawFiles && rawFiles.length > 0) {
-        const added = await processFiles(rawFiles);
+      const result = await window.electron.selectDirectory();
+      if (result && result.files.length > 0) {
+        setImportedPaths(prev => new Set(prev).add(result.rootPath));
+        const added = await processFiles(result.files);
         if (added === 0) alert("未导入新文件（所选文件已存在）。");
       }
     } catch (error) {
       console.error("Electron import failed:", error);
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    if (importedPaths.size === 0) return;
+    if (!window.electron?.scanDirectory) return;
+
+    setIsScanning(true);
+    try {
+      let allFiles = [];
+      for (const path of importedPaths) {
+        const files = await window.electron.scanDirectory(path);
+        allFiles.push(...files);
+      }
+      await processFiles(allFiles, true);
+      console.log("Refresh complete.");
+    } catch (error) {
+      console.error("Refresh failed:", error);
     } finally {
       setIsScanning(false);
     }
@@ -140,7 +171,6 @@ export default function App() {
       });
     }
     
-    if (filters.format !== 'all') result = result.filter(f => f.extension === filters.format);
     if (filters.minWidth > 0) result = result.filter(f => f.dims && f.dims.w >= filters.minWidth);
     
     setFilteredFiles(result);
@@ -172,9 +202,6 @@ export default function App() {
     if (contextMenuTimerRef.current) {
       clearTimeout(contextMenuTimerRef.current);
       contextMenuTimerRef.current = null;
-    }
-    if (!selectedFiles.has(file.id)) {
-      handleSelection(file, false, false);
     }
     setContextMenu({ x: e.clientX, y: e.clientY, file });
   };
@@ -221,7 +248,7 @@ export default function App() {
 
   const handleCopy = useCallback(async () => {
     let targets = [];
-    if (selectedFiles.size > 0) {
+    if (selectedFiles.size > 0 && selectedFiles.has(contextMenu?.file?.id)) {
       targets = filteredFiles.filter(f => selectedFiles.has(f.id));
     } else if (contextMenu?.file) {
       targets = [contextMenu.file];
@@ -250,15 +277,32 @@ export default function App() {
     const a = document.createElement('a'); a.href = url; a.download = `picwatch_groups_${groupMode}.json`; a.click();
   };
 
-  const deleteSelected = () => {
-    if (selectedFiles.size === 0) return;
-    if (confirm(`确定要移除选中的 ${selectedFiles.size} 个项目吗？`)) {
-      setFiles(prev => prev.filter(f => !selectedFiles.has(f.id)));
-      setSelectedFiles(new Set());
+  const handleDeleteFiles = (filesToDeleteSet) => {
+    if (!filesToDeleteSet || filesToDeleteSet.size === 0) return;
+    
+    if (confirm(`确定要移除这 ${filesToDeleteSet.size} 个项目吗？`)) {
+      setFiles(prev => prev.filter(f => !filesToDeleteSet.has(f.id)));
+      const newSelected = new Set(selectedFiles);
+      filesToDeleteSet.forEach(id => newSelected.delete(id));
+      setSelectedFiles(newSelected);
     }
   };
 
-  // === 大图浏览切换逻辑 (实现需求2) ===
+  const deleteSelected = () => {
+    handleDeleteFiles(selectedFiles);
+  };
+
+  const onContextMenuDelete = () => {
+    let targets = new Set();
+    if (selectedFiles.size > 0 && selectedFiles.has(contextMenu.file.id)) {
+        targets = selectedFiles;
+    } else {
+        targets.add(contextMenu.file.id);
+    }
+    handleDeleteFiles(targets);
+    setContextMenu(null);
+  };
+
   const handleNext = () => {
     if (!viewerFile) return;
     const currentIndex = filteredFiles.findIndex(f => f.id === viewerFile.id);
@@ -274,7 +318,6 @@ export default function App() {
       setViewerFile(filteredFiles[currentIndex - 1]);
     }
   };
-  // ===================================
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -296,54 +339,66 @@ export default function App() {
 
   const handleClearAll = () => {
     if (files.length === 0) return;
-    if (confirm("确定要清空所有导入的图片吗？")) {
+    if (confirm("确定要清空列表吗？\n(注意：这只会清空软件中的显示记录，不会删除您电脑上的文件)")) {
       setFiles([]);
+      setImportedPaths(new Set());
       setSelectedFiles(new Set());
       setSelectedGroup(null);
     }
   };
 
   const isMultiSelect = selectedFiles.size > 1;
-
-  // 计算是否有上一张/下一张
   const viewerIndex = viewerFile ? filteredFiles.findIndex(f => f.id === viewerFile.id) : -1;
   const hasPrev = viewerIndex > 0;
   const hasNext = viewerIndex !== -1 && viewerIndex < filteredFiles.length - 1;
+
+  const isPanelOpen = showDetails && activeFile;
+
+  // 计算是否针对多个文件进行上下文操作
+  const isContextMultiSelect = contextMenu && selectedFiles.size > 1 && selectedFiles.has(contextMenu.file.id);
 
   return (
     <div className="flex flex-col h-screen w-full bg-white text-slate-900 font-sans overflow-hidden select-none">
       <input type="file" ref={fileInputRef} onChange={handleWebImport} className="hidden" webkitdirectory="" directory="" multiple />
 
-      <header className="h-14 border-b border-slate-200 bg-white flex items-center px-4 gap-3 shrink-0 z-30 shadow-sm">
-         <div className="flex items-center gap-2 mr-4">
+      <header className="h-14 border-b border-slate-200 bg-white flex items-center px-4 gap-3 shrink-0 z-30 shadow-sm justify-between">
+         <div className="flex items-center gap-2 w-48 shrink-0">
            <div className="bg-gradient-to-br from-blue-600 to-blue-500 text-white p-1.5 rounded-lg shadow-sm"><ImageIcon className="w-5 h-5" /></div>
            <h1 className="font-bold text-lg tracking-tight text-slate-800">PicWatch</h1>
          </div>
-         <div className="h-6 w-px bg-slate-200 mx-2" />
          
-         <Button variant="secondary" onClick={onImportClick}>
-           <Folder className="w-4 h-4 mr-2 text-blue-600" /> 导入文件夹
-         </Button>
-         
-         <Button variant="ghost" onClick={exportGroups} disabled={files.length === 0} title="导出分组 JSON"><Download className="w-4 h-4" /></Button>
-         {files.length > 0 && (
-            <Button variant="ghost" onClick={handleClearAll} title="清空所有"><Trash2 className="w-4 h-4 text-slate-400 hover:text-red-500" /></Button>
-         )}
-         
-         <div className="flex-1" />
-         <div className="relative group">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
-            <input className="pl-9 pr-3 py-1.5 bg-slate-100 border-transparent focus:bg-white focus:border-blue-500 border rounded-md text-sm w-48 transition-all focus:w-64 focus:outline-none focus:ring-2 focus:ring-blue-500/20" 
-              placeholder="搜索文件名、备注..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+         <div className="flex-1 flex justify-center max-w-lg">
+            <div className="relative group w-full">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+                <input className="pl-9 pr-3 py-1.5 bg-slate-100 border-transparent focus:bg-white focus:border-blue-500 border rounded-md text-sm w-full transition-all focus:ring-2 focus:ring-blue-500/20" 
+                  placeholder="搜索文件名、备注..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+            </div>
          </div>
-         <div className="flex items-center gap-2 border-l border-slate-200 pl-3 ml-2">
-           <select className="text-sm border-none bg-transparent focus:ring-0 text-slate-600 font-medium cursor-pointer hover:text-slate-900"
-             value={filters.format} onChange={e => setFilters(prev => ({ ...prev, format: e.target.value }))}>
-             <option value="all">全部格式</option>
-             <option value="jpg">JPG</option>
-             <option value="png">PNG</option>
-           </select>
-           <Button variant={showDetails ? 'primary' : 'secondary'} size="icon" onClick={() => setShowDetails(!showDetails)}><List className="w-4 h-4" /></Button>
+
+         <div className="flex items-center gap-1 w-auto justify-end shrink-0 ml-4">
+           <Button variant="secondary" onClick={onImportClick} className="mr-1 h-8" title="导入文件夹">
+             <Folder className="w-4 h-4 mr-2 text-blue-600" /> 导入
+           </Button>
+           
+           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={exportGroups} disabled={files.length === 0} title="导出分组 JSON">
+             <Download className="w-4 h-4" />
+           </Button>
+           
+           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleRefresh} disabled={importedPaths.size === 0 || isScanning} title="重新扫描已导入的文件夹">
+             <RotateCw className={`w-4 h-4 ${isScanning ? 'animate-spin' : ''}`} />
+           </Button>
+           
+           {files.length > 0 && (
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleClearAll} title="清空列表 (不删除文件)">
+                <XCircle className="w-4 h-4 text-slate-400 hover:text-red-500" />
+              </Button>
+           )}
+
+           <div className="h-5 w-px bg-slate-200 mx-1" />
+           
+           <Button variant={showDetails ? 'primary' : 'secondary'} size="icon" className="h-8 w-8" onClick={() => setShowDetails(!showDetails)} title="显示/隐藏属性">
+             <List className="w-4 h-4" />
+           </Button>
          </div>
       </header>
 
@@ -357,7 +412,7 @@ export default function App() {
         
         <Sidebar groups={groups} selectedGroup={selectedGroup} onSelectGroup={setSelectedGroup} groupMode={groupMode} setGroupMode={setGroupMode} stats={{ total: files.length }} />
 
-        <main className="flex-1 flex flex-col min-w-0 bg-slate-50 relative shadow-inner">
+        <main className="flex-1 flex flex-col min-w-0 bg-slate-50 shadow-inner transition-all duration-200">
           <div className="h-10 border-b border-slate-200 bg-white flex items-center justify-between px-4 text-xs text-slate-500 shrink-0">
              <div className="flex items-center gap-2 overflow-hidden">
                <span className="font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded whitespace-nowrap shrink-0">{currentGroupDisplayName}</span>
@@ -383,7 +438,16 @@ export default function App() {
           <PhotoGrid files={filteredFiles} selectedFiles={selectedFiles} onSelect={handleSelection} onDoubleClick={setViewerFile} onContextMenu={handleContextMenu} />
         </main>
 
-        {showDetails && <DetailsPanel file={activeFile} onClose={() => setShowDetails(false)} />}
+        <div 
+          className={`
+            h-full bg-white shrink-0 transition-[width] duration-300 ease-in-out overflow-hidden
+            ${isPanelOpen ? 'w-80 border-l border-slate-200' : 'w-0 border-l-0'}
+          `}
+        >
+           <div className="w-80 h-full">
+              {activeFile && <DetailsPanel file={activeFile} onClose={() => setShowDetails(false)} />}
+           </div>
+        </div>
       </div>
 
       <footer className="h-7 bg-slate-900 text-slate-400 text-[11px] flex items-center px-4 justify-between shrink-0 z-40">
@@ -407,20 +471,30 @@ export default function App() {
           onMouseEnter={handleMenuMouseEnter}
           onMouseLeave={handleMenuMouseLeave}
         >
-          {!isMultiSelect && (
-            <button className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2" onClick={() => { setViewerFile(contextMenu.file); setContextMenu(null); }}>
+          {!isContextMultiSelect && (
+            <button className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2" onClick={() => { 
+              // 核心修复：先选中文件，再执行操作
+              handleSelection(contextMenu.file, false, false);
+              setViewerFile(contextMenu.file); 
+              setContextMenu(null); 
+            }}>
               <Maximize2 className="w-3.5 h-3.5" /> 查看大图
             </button>
           )}
           
-          {!isMultiSelect && (
-            <button className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2" onClick={() => { setShowDetails(true); setContextMenu(null); }}>
+          {!isContextMultiSelect && (
+            <button className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2" onClick={() => { 
+              // 核心修复：先选中文件，再打开面板
+              handleSelection(contextMenu.file, false, false);
+              setShowDetails(true); 
+              setContextMenu(null); 
+            }}>
               <Info className="w-3.5 h-3.5" /> 查看属性
             </button>
           )}
 
           <button className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2" onClick={handleOpenFolder}>
-            <FolderOpen className="w-3.5 h-3.5" /> {isMultiSelect ? '打开所在文件夹' : '打开所在文件夹'}
+            <FolderOpen className="w-3.5 h-3.5" /> {isContextMultiSelect ? '打开所在文件夹' : '打开所在文件夹'}
           </button>
           
           <div className="h-px bg-slate-100 my-1" />
@@ -428,7 +502,7 @@ export default function App() {
             <Copy className="w-3.5 h-3.5" /> 复制文件
           </button>
           <div className="h-px bg-slate-100 my-1" />
-          <button className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600 flex items-center gap-2" onClick={() => { deleteSelected(); setContextMenu(null); }}>
+          <button className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600 flex items-center gap-2" onClick={onContextMenuDelete}>
             <Trash2 className="w-3.5 h-3.5" /> 从列表中移除
           </button>
         </div>

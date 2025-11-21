@@ -31,7 +31,9 @@ const DetailsPanel = ({ file, onClose }) => {
   const camera = [file.exif?.Make, file.exif?.Model].filter(Boolean).join(' ');
 
   return (
-    <div className="w-80 border-l border-slate-200 bg-white h-full flex flex-col shrink-0 shadow-xl z-20 animate-in slide-in-from-right duration-200">
+    // 修改：移除了 w-80, border, animate 等外部布局样式，只保留内部结构样式
+    // 宽度和边框现在由 App.jsx 中的容器控制
+    <div className="h-full flex flex-col bg-white">
       <div className="h-12 border-b border-slate-200 flex items-center justify-between px-4 bg-slate-50/50 shrink-0">
         <span className="font-semibold text-sm text-slate-700 flex items-center gap-2"><Info className="w-4 h-4" /> 属性详情</span>
         <Button variant="ghost" size="icon" onClick={onClose}><X className="w-4 h-4" /></Button>

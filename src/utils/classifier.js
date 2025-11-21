@@ -57,18 +57,40 @@ export const Classifier = {
     return groups;
   },
 
-  // 按标签分组
+  // [修改] 按标签分组：保留复合标签，同时也拆分归类到单个标签，确保数量统计正确
   groupByTags: (files) => {
     const groups = {};
     files.forEach(f => {
-      const keywords = f.iptc?.Keywords || [];
-      
-      keywords.forEach(tag => {
-        if (tag && String(tag).trim()) {
-          const t = String(tag).trim();
-          if (!groups[t]) groups[t] = [];
-          groups[t].push(f);
+      const rawKeywords = f.iptc?.Keywords || [];
+      const keywords = new Set(); // 使用 Set 去重
+
+      const processTag = (tag) => {
+        if (!tag) return;
+        const str = String(tag).trim();
+        if (!str) return;
+
+        // 1. 保留原始标签 (例如 "道路清理, 洒水降尘")
+        // 这样侧边栏会显示 "道路清理, 洒水降尘" 这个分组，且只包含拥有该完整标签的文件
+        keywords.add(str);
+
+        // 2. 按分隔符拆分并归类到子标签 (例如 "道路清理" 和 "洒水降尘")
+        // 这样 "道路清理" 分组的计数会包含这些文件 (6张单纯的 + 3张复合的 = 9张)
+        const parts = str.split(/[,，;；|]+/).map(s => s.trim()).filter(Boolean);
+        if (parts.length > 1) {
+          parts.forEach(p => keywords.add(p));
         }
+      };
+
+      if (Array.isArray(rawKeywords)) {
+        rawKeywords.forEach(processTag);
+      } else {
+        processTag(rawKeywords);
+      }
+      
+      // 将文件添加到所有计算出的分组中
+      keywords.forEach(t => {
+        if (!groups[t]) groups[t] = [];
+        groups[t].push(f);
       });
     });
     return groups;

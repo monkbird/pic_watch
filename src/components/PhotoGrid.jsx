@@ -20,7 +20,17 @@ const PhotoGrid = ({ files, selectedFiles, onSelect, onDoubleClick, onContextMen
       className="flex-1 overflow-y-auto bg-slate-50/30 p-4 custom-scrollbar"
       onClick={() => onSelect(null, false, false)}
     >
-      <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-4 pb-10">
+      {/* 核心修改：使用 repeat(auto-fill, minmax(...)) 实现自适应布局
+        - minmax(200px, 1fr): 卡片最小宽度 200px，如果有剩余空间则平分 (1fr)
+        - auto-fill: 根据容器宽度自动填充尽可能多的列
+        这样当右侧详情页展开导致容器变窄时，会自动减少列数，而不会挤压卡片
+      */}
+      <div 
+        className="grid gap-4 pb-10"
+        style={{ 
+          gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' 
+        }}
+      >
         {files.map(file => (
           <PhotoCard 
             key={file.id} 
