@@ -42,6 +42,10 @@
 - 旧版 Python 端（PySide6 GUI / CLI 扫描）已移除；不再需要 Python 依赖与脚本
 
 ## 版本更新
+- v1.0.2（2025-11-21）
+  - README 发布链接改为“最新 Release”动态链接
+  - 增加 Linux（UOS）构建与下载说明
+  - 配置 `package.json` 的 Linux AppImage 构建目标
 - v1.0.1（2025-11-21）
   - 完善文档与使用说明
   - 明确 Electron 构建输出目录 `dist-electron/`
