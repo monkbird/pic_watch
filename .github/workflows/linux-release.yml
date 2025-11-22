@@ -36,8 +36,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Linux artifacts
-        run: npx electron-builder --linux AppImage,deb --${{ matrix.arch }}
+      - name: Build Linux artifacts (deb)
+        run: npx electron-builder --linux deb --${{ matrix.arch }}
+
+      - name: Build Linux artifacts (AppImage)
+        run: npx electron-builder --linux AppImage --${{ matrix.arch }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
