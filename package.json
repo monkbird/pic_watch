@@ -2,8 +2,10 @@
   "name": "picwatch-desktop",
   "private": true,
   "version": "1.0.3",
+  "description": "PicWatch: 快速浏览、分组与元数据查看的图片管理工具",
   "main": "electron/main.js",
   "type": "module",
+  "author": "monkbird",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -48,6 +50,9 @@
         "AppImage",
         "deb"
       ],
+      "maintainer": "monkbird <monkbird@example.com>",
+      "synopsis": "PicWatch 图片管理与浏览",
+      "description": "浏览与分组查看图片，支持 EXIF/IPTC 元数据提取与筛选。",
       "category": "Graphics"
     },
     "win": {
