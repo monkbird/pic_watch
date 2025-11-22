@@ -4,13 +4,13 @@ import {
   RefreshCw, Download, ChevronRight, FolderOpen, Copy, RotateCw, XCircle
 } from 'lucide-react';
 
-import Sidebar from './components/Sidebar';
-import PhotoGrid from './components/PhotoGrid';
-import DetailsPanel from './components/DetailsPanel';
-import ImageViewer from './components/ImageViewer';
-import { Button } from './components/ui/Primitives';
-import { extractMetadata, ALLOWED_EXTENSIONS } from './utils/metadata';
-import { Classifier } from './utils/classifier';
+import Sidebar from './components/Sidebar.jsx';
+import PhotoGrid from './components/PhotoGrid.jsx';
+import DetailsPanel from './components/DetailsPanel.jsx';
+import ImageViewer from './components/ImageViewer.jsx';
+import { Button } from './components/ui/Primitives.jsx';
+import { extractMetadata, ALLOWED_EXTENSIONS } from './utils/metadata.js';
+import { Classifier } from './utils/classifier.js';
 
 export default function App() {
   const [files, setFiles] = useState([]);
@@ -34,20 +34,24 @@ export default function App() {
   const fileInputRef = useRef(null);
   const contextMenuTimerRef = useRef(null);
 
-  // === 通用的文件处理与导入逻辑 ===
   const processFiles = async (newFilesInput, updateMode = false) => {
-    const BATCH = 20;
+    const BATCH_SIZE = 50; 
     const existingFileMap = new Map(files.map(f => [f.path, f]));
     let addedCount = 0;
     let processedFiles = [];
 
-    for (let i = 0; i < newFilesInput.length; i += BATCH) {
-      const chunk = newFilesInput.slice(i, i + BATCH);
+    const total = newFilesInput.length;
+    
+    for (let i = 0; i < total; i += BATCH_SIZE) {
+      const chunk = newFilesInput.slice(i, i + BATCH_SIZE);
+      
       const chunkProcessed = await Promise.all(chunk.map(async (f) => {
         const path = f.path || (f.webkitRelativePath || f.name);
+        
         if (updateMode && existingFileMap.has(path)) {
           return existingFileMap.get(path);
         }
+        
         const metadata = await extractMetadata(f);
         return { ...metadata, fileObj: (f instanceof File ? f : null) };
       }));
@@ -63,7 +67,7 @@ export default function App() {
         }
       }
       
-      await new Promise(r => setTimeout(r, 20));
+      await new Promise(r => setTimeout(r, 0));
     }
 
     if (updateMode) {
@@ -134,6 +138,18 @@ export default function App() {
     }
   };
 
+  const updateFileMetadata = (fileId, updates) => {
+    setFiles(prevFiles => prevFiles.map(f => {
+      if (f.id === fileId) {
+        const updatedFile = { ...f };
+        if (updates.iptc) updatedFile.iptc = { ...updatedFile.iptc, ...updates.iptc };
+        if (updates.exif) updatedFile.exif = { ...updatedFile.exif, ...updates.exif };
+        return updatedFile;
+      }
+      return f;
+    }));
+  };
+
   const groups = useMemo(() => {
     if (!files) return {};
     switch (groupMode) {
@@ -181,22 +197,40 @@ export default function App() {
     return null;
   }, [selectedFiles, files]);
 
+  // [修复] 简化多选逻辑，修复"点击3次"的bug
   const handleSelection = useCallback((file, multi, range) => {
     if (!file) { setSelectedFiles(new Set()); setLastSelectedId(null); return; }
-    const newSet = new Set(multi ? selectedFiles : []);
-    if (range && lastSelectedId) {
-      const idx1 = filteredFiles.findIndex(f => f.id === lastSelectedId);
-      const idx2 = filteredFiles.findIndex(f => f.id === file.id);
-      if (idx1 !== -1 && idx2 !== -1) {
-        const start = Math.min(idx1, idx2); const end = Math.max(idx1, idx2);
-        for (let i = start; i <= end; i++) newSet.add(filteredFiles[i].id);
+    
+    setSelectedFiles(prev => {
+      // 关键修复：在多选模式下，基于 prev 创建新 Set；单选模式下，创建空 Set
+      const newSet = new Set(multi ? prev : []); 
+      
+      if (range && lastSelectedId) {
+        const idx1 = filteredFiles.findIndex(f => f.id === lastSelectedId);
+        const idx2 = filteredFiles.findIndex(f => f.id === file.id);
+        if (idx1 !== -1 && idx2 !== -1) {
+          const start = Math.min(idx1, idx2); const end = Math.max(idx1, idx2);
+          for (let i = start; i <= end; i++) newSet.add(filteredFiles[i].id);
+        }
+      } else {
+        // 关键修复：正确的切换逻辑
+        if (multi) {
+          if (newSet.has(file.id)) {
+            newSet.delete(file.id);
+          } else {
+            newSet.add(file.id);
+          }
+        } else {
+          // 单选直接覆盖
+          newSet.clear();
+          newSet.add(file.id);
+        }
       }
-    } else {
-      if (multi && newSet.has(file.id)) newSet.delete(file.id); else newSet.add(file.id);
-      setLastSelectedId(file.id);
-    }
-    setSelectedFiles(newSet);
-  }, [selectedFiles, lastSelectedId, filteredFiles]);
+      return newSet;
+    });
+    
+    if (!range) setLastSelectedId(file.id);
+  }, [lastSelectedId, filteredFiles]);
 
   const handleContextMenu = (e, file) => {
     if (contextMenuTimerRef.current) {
@@ -246,27 +280,29 @@ export default function App() {
     setContextMenu(null);
   };
 
+  // 复制：统一为复制路径（多选或单选，按键或右击）
   const handleCopy = useCallback(async () => {
     let targets = [];
-    if (selectedFiles.size > 0 && selectedFiles.has(contextMenu?.file?.id)) {
-      targets = filteredFiles.filter(f => selectedFiles.has(f.id));
-    } else if (contextMenu?.file) {
-      targets = [contextMenu.file];
-    } else if (activeFile) {
-      targets = [activeFile];
+
+    if (contextMenu) {
+      if (selectedFiles.has(contextMenu.file.id)) {
+        targets = filteredFiles.filter(f => selectedFiles.has(f.id));
+      } else {
+        targets = [contextMenu.file];
+      }
+    } else {
+      if (selectedFiles.size > 0) {
+        targets = filteredFiles.filter(f => selectedFiles.has(f.id));
+      } else if (activeFile) {
+        targets = [activeFile];
+      }
     }
 
     if (targets.length === 0) return;
 
     const paths = targets.map(f => f.path);
-    
-    if (window.electron?.copyFiles) {
-      await window.electron.copyFiles(paths);
-      console.log(`已复制 ${paths.length} 个文件`);
-    } else {
-      navigator.clipboard.writeText(paths.join('\n'));
-      alert(`Web模式：已复制 ${paths.length} 个文件路径文本`);
-    }
+    await navigator.clipboard.writeText(paths.join('\n'));
+    alert(`已复制 ${paths.length} 个路径`);
     setContextMenu(null);
   }, [selectedFiles, filteredFiles, contextMenu, activeFile]);
 
@@ -319,9 +355,14 @@ export default function App() {
     }
   };
 
+  // [新增] 全局键盘监听 (Ctrl+C / Delete)
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+      // Ctrl+C 或 Command+C
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+        // 检查是否正在编辑文本 (避免在详情页输入备注时触发复制)
+        if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+        
         e.preventDefault();
         handleCopy();
       }
@@ -329,7 +370,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleCopy, deleteSelected]);
+  }, [handleCopy, deleteSelected]); 
 
   useEffect(() => {
     const closeContext = () => setContextMenu(null);
@@ -353,8 +394,6 @@ export default function App() {
   const hasNext = viewerIndex !== -1 && viewerIndex < filteredFiles.length - 1;
 
   const isPanelOpen = showDetails && activeFile;
-
-  // 计算是否针对多个文件进行上下文操作
   const isContextMultiSelect = contextMenu && selectedFiles.size > 1 && selectedFiles.has(contextMenu.file.id);
 
   return (
@@ -429,7 +468,7 @@ export default function App() {
              {selectedFiles.size > 0 && (
                <div className="flex items-center gap-3 animate-in slide-in-from-top-2 duration-200 ml-4">
                  <span className="text-blue-600 font-medium whitespace-nowrap">已选中 {selectedFiles.size} 项</span>
-                 <button className="hover:text-blue-600 flex items-center gap-1 transition-colors mr-2 whitespace-nowrap" onClick={handleCopy} title="复制文件实体 (可粘贴到资源管理器)"><Copy className="w-3 h-3" /> 复制文件</button>
+                 <button className="hover:text-blue-600 flex items-center gap-1 transition-colors mr-2 whitespace-nowrap" onClick={handleCopy} title="复制所选路径到剪贴板"><Copy className="w-3 h-3" /> 复制路径</button>
                  <button className="hover:text-red-600 flex items-center gap-1 transition-colors whitespace-nowrap" onClick={deleteSelected}><Trash2 className="w-3 h-3" /> 移除</button>
                </div>
              )}
@@ -445,18 +484,19 @@ export default function App() {
           `}
         >
            <div className="w-80 h-full">
-              {activeFile && <DetailsPanel file={activeFile} onClose={() => setShowDetails(false)} />}
+              {activeFile && <DetailsPanel file={activeFile} onClose={() => setShowDetails(false)} onUpdate={(updates) => updateFileMetadata(activeFile.id, updates)} />}
            </div>
         </div>
       </div>
 
       <footer className="h-7 bg-slate-900 text-slate-400 text-[11px] flex items-center px-4 justify-between shrink-0 z-40">
         <div>总计: {files.length}</div>
-        {files.length > 0 && <div>支持 Ctrl+C 复制文件 / Ctrl+V 粘贴</div>}
+        {files.length > 0 && <div>支持 Ctrl+C 复制路径</div>}
       </footer>
 
       <ImageViewer 
-        file={viewerFile} 
+        file={viewerFile}
+        allFiles={filteredFiles}
         onClose={() => setViewerFile(null)} 
         onNext={handleNext}
         onPrev={handlePrev}
@@ -473,7 +513,6 @@ export default function App() {
         >
           {!isContextMultiSelect && (
             <button className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2" onClick={() => { 
-              // 核心修复：先选中文件，再执行操作
               handleSelection(contextMenu.file, false, false);
               setViewerFile(contextMenu.file); 
               setContextMenu(null); 
@@ -484,7 +523,6 @@ export default function App() {
           
           {!isContextMultiSelect && (
             <button className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2" onClick={() => { 
-              // 核心修复：先选中文件，再打开面板
               handleSelection(contextMenu.file, false, false);
               setShowDetails(true); 
               setContextMenu(null); 
@@ -494,12 +532,12 @@ export default function App() {
           )}
 
           <button className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2" onClick={handleOpenFolder}>
-            <FolderOpen className="w-3.5 h-3.5" /> {isContextMultiSelect ? '打开所在文件夹' : '打开所在文件夹'}
+            <FolderOpen className="w-3.5 h-3.5" /> 打开所在文件夹
           </button>
           
           <div className="h-px bg-slate-100 my-1" />
           <button className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2" onClick={handleCopy}>
-            <Copy className="w-3.5 h-3.5" /> 复制文件
+            <Copy className="w-3.5 h-3.5" /> 复制路径
           </button>
           <div className="h-px bg-slate-100 my-1" />
           <button className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600 flex items-center gap-2" onClick={onContextMenuDelete}>
