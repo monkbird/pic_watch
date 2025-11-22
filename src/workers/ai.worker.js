@@ -2,9 +2,9 @@
 
 // ================= 配置区域 =================
 // 建议后续将这些移到设置界面，目前为了跑通先硬编码
-const API_KEY = "b0c51f32-2cf6-47a3-b1b6-c30846613c5a"; // 例如：sk-xxxxxxxx
+const API_KEY = "xxxxxxxxx"; // 例如：sk-xxxxxxxx
 const API_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
-const MODEL_ENDPOINT = "doubao-seed-1-6-vision-250815"; // 关键！例如：ep-20240520010101-abcde
+const MODEL_ENDPOINT = "xxxxxxxx"; // 关键！例如：ep-20240520010101-abcde
 // ===========================================
 
 self.addEventListener('message', async (event) => {
