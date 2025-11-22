@@ -13,4 +13,6 @@ Thumbs.db
 photo_viewer_cache/
 node_modules/
 dist/
+.cache/
+dist-electron/
 .vite/
