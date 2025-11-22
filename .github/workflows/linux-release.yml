@@ -13,6 +13,9 @@ on:
   repository_dispatch:
     types: [linux-release-run]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
