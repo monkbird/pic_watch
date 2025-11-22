@@ -14,5 +14,5 @@ photo_viewer_cache/
 node_modules/
 dist/
 .cache/
-dist-electron/
+dist-electron
 .vite/

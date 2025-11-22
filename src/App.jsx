@@ -141,7 +141,7 @@ export default function App() {
   const updateFileMetadata = (fileId, updates) => {
     setFiles(prevFiles => prevFiles.map(f => {
       if (f.id === fileId) {
-        const updatedFile = { ...f };
+        const updatedFile = { ...f, ...updates};
         if (updates.iptc) updatedFile.iptc = { ...updatedFile.iptc, ...updates.iptc };
         if (updates.exif) updatedFile.exif = { ...updatedFile.exif, ...updates.exif };
         return updatedFile;
