@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Info, X, Copy, Sparkles, Loader2 } from 'lucide-react'; // 引入新图标
+import { Info, X, Copy, Sparkles, Loader2, Pencil, Check } from 'lucide-react';
 import { Button } from './ui/Primitives';
 import { humanSize, formatDate } from '../utils/metadata';
 import { aiInstance } from '../utils/aiService'; // 引入 AI 服务
@@ -13,7 +13,7 @@ const InfoRow = ({ label, value, copyable }) => (
       </span>
       {copyable && value && (
         <button 
-          className="opacity-0 group-hover:opacity-100 p-1 hover:bg-slate-100 rounded text-slate-400 transition-opacity shrink-0"
+          className="opacity-0 group-hover:opacity-100 p-1 hover:bg-transparent rounded text-slate-400 transition-opacity shrink-0"
           onClick={() => navigator.clipboard.writeText(value)}
           title="复制"
         >
@@ -72,6 +72,17 @@ const DetailsPanel = ({ file, onClose, onUpdate }) => { // 增加 onUpdate 参�
 
   const tags = file.iptc?.Keywords?.join('; ');
   const remark = file.exif?.ImageDescription; 
+  const [editingTags, setEditingTags] = useState(false);
+  const [editingRemark, setEditingRemark] = useState(false);
+  const [editTagsValue, setEditTagsValue] = useState(tags || '');
+  const [editRemarkValue, setEditRemarkValue] = useState(remark || '');
+
+  useEffect(() => {
+    setEditingTags(false);
+    setEditingRemark(false);
+    setEditTagsValue((file.iptc?.Keywords || []).join('; '));
+    setEditRemarkValue(file.exif?.ImageDescription || '');
+  }, [file.id]);
   const camera = [file.exif?.Make, file.exif?.Model].filter(Boolean).join(' ');
 
   return (
@@ -141,8 +152,78 @@ const DetailsPanel = ({ file, onClose, onUpdate }) => { // 增加 onUpdate 参�
           </div>
           <div>
             <h4 className="text-xs font-bold text-slate-900 border-b border-slate-200 pb-1 mb-2">内容与描述</h4>
-            <InfoRow label="标记 (Tags)" value={tags} copyable />
-            <InfoRow label="备注 (Remarks)" value={remark} copyable />
+            <div className="group flex flex-col py-1.5 border-b border-slate-100">
+              <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wider mb-0.5">标记 (Tags)</span>
+              <div className="flex items-center justify-between min-h-[20px]">
+                {editingTags ? (
+                  <>
+                    <input className="flex-1 text-xs text-slate-700 bg-white border border-slate-200 rounded px-2 py-1" value={editTagsValue} onChange={e => setEditTagsValue(e.target.value)} />
+                    <div className="flex items-center gap-1 ml-2">
+                      <button className="p-1 hover:bg-transparent rounded text-slate-600" title="保存" onClick={() => {
+                        const arr = editTagsValue.split(/[;，,\s|]+/).map(s => s.trim()).filter(Boolean);
+                        onUpdate && onUpdate({ iptc: { Keywords: arr }, exif: { XPKeywords: arr.join('; ') } });
+                        setEditingTags(false);
+                      }}>
+                        <Check className="w-3 h-3" />
+                      </button>
+                      <button className="p-1 hover:bg-transparent rounded text-slate-400" title="取消" onClick={() => { setEditingTags(false); setEditTagsValue(tags || ''); }}>
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-xs text-slate-700 break-all leading-relaxed select-text whitespace-pre-wrap">{tags || <span className="text-slate-300">-</span>}</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {tags && (
+                        <button className="opacity-0 group-hover:opacity-100 p-1 hover:bg-transparent rounded text-slate-400 transition-opacity" onClick={() => navigator.clipboard.writeText(tags)} title="复制">
+                          <Copy className="w-3 h-3" />
+                        </button>
+                      )}
+                      <button className="opacity-0 group-hover:opacity-100 p-1 hover:bg-transparent rounded text-slate-400 transition-opacity" onClick={() => { setEditingTags(true); setEditTagsValue(tags || ''); }} title="编辑">
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="group flex flex-col py-1.5 border-b border-slate-100 last:border-0">
+              <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wider mb-0.5">备注 (Remarks)</span>
+              <div className="flex items-center justify-between min-h-[20px]">
+                {editingRemark ? (
+                  <>
+                    <textarea className="flex-1 text-xs text-slate-700 bg-white border border-slate-200 rounded px-2 py-1 min-h-[60px]" value={editRemarkValue} onChange={e => setEditRemarkValue(e.target.value)} />
+                    <div className="flex items-center gap-1 ml-2">
+                      <button className="p-1 hover:bg-transparent rounded text-slate-600" title="保存" onClick={() => {
+                        onUpdate && onUpdate({ exif: { ImageDescription: editRemarkValue }, iptc: { Caption: editRemarkValue } });
+                        setEditingRemark(false);
+                      }}>
+                        <Check className="w-3 h-3" />
+                      </button>
+                      <button className="p-1 hover:bg-transparent rounded text-slate-400" title="取消" onClick={() => { setEditingRemark(false); setEditRemarkValue(remark || ''); }}>
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-xs text-slate-700 break-all leading-relaxed select-text whitespace-pre-wrap">{remark || <span className="text-slate-300">-</span>}</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {remark && (
+                        <button className="opacity-0 group-hover:opacity-100 p-1 hover:bg-transparent rounded text-slate-400 transition-opacity" onClick={() => navigator.clipboard.writeText(remark)} title="复制">
+                          <Copy className="w-3 h-3" />
+                        </button>
+                      )}
+                      <button className="opacity-0 group-hover:opacity-100 p-1 hover:bg-transparent rounded text-slate-400 transition-opacity" onClick={() => { setEditingRemark(true); setEditRemarkValue(remark || ''); }} title="编辑">
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
           {(camera || file.exif?.FNumber) && (
             <div>

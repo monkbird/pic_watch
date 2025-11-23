@@ -25,21 +25,17 @@ const PhotoGrid = ({ files, selectedFiles, onSelect, onDoubleClick, onContextMen
         - auto-fill: 根据容器宽度自动填充尽可能多的列
         这样当右侧详情页展开导致容器变窄时，会自动减少列数，而不会挤压卡片
       */}
-      <div 
-        className="grid gap-4 pb-10"
-        style={{ 
-          gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' 
-        }}
-      >
+      <div className="pb-10" style={{ columnWidth: '220px', columnGap: '12px' }}>
         {files.map(file => (
-          <PhotoCard 
-            key={file.id} 
-            file={file} 
-            selected={selectedFiles.has(file.id)}
-            onSelect={onSelect}
-            onDoubleClick={onDoubleClick}
-            onContextMenu={onContextMenu}
-          />
+          <div key={file.id} style={{ breakInside: 'avoid' }} className="mb-3">
+            <PhotoCard 
+              file={file} 
+              selected={selectedFiles.has(file.id)}
+              onSelect={onSelect}
+              onDoubleClick={onDoubleClick}
+              onContextMenu={onContextMenu}
+            />
+          </div>
         ))}
       </div>
     </div>

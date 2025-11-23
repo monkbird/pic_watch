@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { 
   Folder, Image as ImageIcon, Search, List, Info, Maximize2, Trash2, Grid, 
-  RefreshCw, Download, ChevronRight, FolderOpen, Copy, RotateCw, XCircle
+  RefreshCw, Download, ChevronRight, FolderOpen, Copy, RotateCw, XCircle,
+  Sparkles
 } from 'lucide-react';
 
 import Sidebar from './components/Sidebar.jsx';
@@ -11,6 +12,7 @@ import ImageViewer from './components/ImageViewer.jsx';
 import { Button } from './components/ui/Primitives.jsx';
 import { extractMetadata, ALLOWED_EXTENSIONS } from './utils/metadata.js';
 import { Classifier } from './utils/classifier.js';
+import { aiInstance } from './utils/aiService.js';
 
 export default function App() {
   const [files, setFiles] = useState([]);
@@ -31,14 +33,48 @@ export default function App() {
   const [isScanning, setIsScanning] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
   
+  // AI 队列相关状态
+  const [aiQueue, setAiQueue] = useState([]);
+  const [isProcessingAI, setIsProcessingAI] = useState(false);
+  
   const fileInputRef = useRef(null);
   const contextMenuTimerRef = useRef(null);
+
+  // 生成用于缓存的唯一 Key
+  const getFileCacheKey = (file) => {
+    return `ai_cache_${file.name}_${file.size}_${file.lastModified}`;
+  };
+
+  // 从本地存储加载缓存
+  const loadAiCache = (file) => {
+    try {
+      const key = getFileCacheKey(file);
+      const cached = localStorage.getItem(key);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch (e) {
+      console.warn("Cache read error", e);
+    }
+    return null;
+  };
+
+  // 保存缓存
+  const saveAiCache = (file, data) => {
+    try {
+      const key = getFileCacheKey(file);
+      localStorage.setItem(key, JSON.stringify(data));
+    } catch (e) {
+      console.warn("Cache write error", e);
+    }
+  };
 
   const processFiles = async (newFilesInput, updateMode = false) => {
     const BATCH_SIZE = 50; 
     const existingFileMap = new Map(files.map(f => [f.path, f]));
     let addedCount = 0;
     let processedFiles = [];
+    let newAiQueueItems = [];
 
     const total = newFilesInput.length;
     
@@ -53,7 +89,18 @@ export default function App() {
         }
         
         const metadata = await extractMetadata(f);
-        return { ...metadata, fileObj: (f instanceof File ? f : null) };
+        const fileObj = { ...metadata, fileObj: (f instanceof File ? f : null) };
+
+        // 检查是否有 AI 识别缓存
+        const cachedAi = loadAiCache(fileObj);
+        if (cachedAi) {
+          fileObj.aiData = cachedAi;
+        } else {
+          // 如果没有缓存，标记需要 AI 识别
+          fileObj.needsAiAnalysis = true;
+        }
+
+        return fileObj;
       }));
       
       processedFiles.push(...chunkProcessed);
@@ -63,6 +110,14 @@ export default function App() {
         if (newUnique.length > 0) {
           newUnique.forEach(f => existingFileMap.set(f.path, f));
           setFiles(prev => [...prev, ...newUnique]);
+          
+          // 收集需要 AI 识别的文件 ID
+          newUnique.forEach(f => {
+            if (f.needsAiAnalysis) {
+              newAiQueueItems.push(f.id);
+            }
+          });
+          
           addedCount += newUnique.length;
         }
       }
@@ -72,11 +127,82 @@ export default function App() {
 
     if (updateMode) {
       setFiles(processedFiles);
+      // 更新模式下，检查是否有新文件或未识别文件需要加入队列
+      processedFiles.forEach(f => {
+        if (f.needsAiAnalysis && !f.aiData) {
+           newAiQueueItems.push(f.id);
+        }
+      });
       addedCount = processedFiles.length - existingFileMap.size;
+    }
+
+    // 更新 AI 队列
+    if (newAiQueueItems.length > 0) {
+      setAiQueue(prev => [...prev, ...newAiQueueItems]);
     }
 
     return addedCount;
   };
+
+  // 后台 AI 处理队列 Effect
+  useEffect(() => {
+    const processNext = async () => {
+      if (aiQueue.length === 0 || isProcessingAI) return;
+
+      const fileId = aiQueue[0];
+      const file = files.find(f => f.id === fileId);
+
+      // 如果文件不存在或者已经有数据了，跳过
+      if (!file || file.aiData?.labels) {
+        setAiQueue(prev => prev.slice(1));
+        return;
+      }
+
+      setIsProcessingAI(true);
+
+      // 更新 UI 状态显示 "识别中"
+      updateFileMetadata(fileId, { aiStatus: 'processing' });
+
+      try {
+        // 调用 AI 服务
+        aiInstance.analyzeImage(fileId, file.thumbnail, ({ status, result, message }) => {
+          if (status === 'complete') {
+            const aiData = { 
+              labels: result,
+              processedAt: new Date().toISOString()
+            };
+            
+            // 存入缓存
+            saveAiCache(file, aiData);
+            
+            // 更新文件状态
+            updateFileMetadata(fileId, { 
+              aiData, 
+              aiStatus: 'complete' 
+            });
+            
+            // 移除出队列并继续
+            setAiQueue(prev => prev.slice(1));
+            setIsProcessingAI(false);
+          } else if (status === 'error') {
+            console.error(`AI Error for ${file.name}:`, message);
+            updateFileMetadata(fileId, { aiStatus: 'error' });
+            
+            // 即使出错也移出队列，避免阻塞
+            setAiQueue(prev => prev.slice(1));
+            setIsProcessingAI(false);
+          }
+        });
+      } catch (e) {
+        console.error("AI processing exception:", e);
+        setAiQueue(prev => prev.slice(1));
+        setIsProcessingAI(false);
+      }
+    };
+
+    processNext();
+  }, [aiQueue, isProcessingAI, files]);
+
 
   const handleElectronImport = async () => {
     setIsScanning(true);
@@ -140,18 +266,18 @@ export default function App() {
 
   const updateFileMetadata = (fileId, updates) => {
     setFiles(prevFiles => prevFiles.map(f => {
-      if (f.id === fileId) {
-        const updatedFile = { ...f, ...updates};
-        if (updates.iptc) updatedFile.iptc = { ...updatedFile.iptc, ...updates.iptc };
-        if (updates.exif) updatedFile.exif = { ...updatedFile.exif, ...updates.exif };
-        return updatedFile;
-      }
-      return f;
+      if (f.id !== fileId) return f;
+      const updated = { ...f };
+      if (updates.iptc) updated.iptc = { ...(updated.iptc || {}), ...updates.iptc };
+      if (updates.exif) updated.exif = { ...(updated.exif || {}), ...updates.exif };
+      Object.keys(updates).forEach(k => { if (k !== 'iptc' && k !== 'exif') updated[k] = updates[k]; });
+      return updated;
     }));
   };
 
   const groups = useMemo(() => {
     if (!files) return {};
+    // AI 内容不能用来分组，保持原有逻辑
     switch (groupMode) {
       case 'folder': return Classifier.groupByFolder(files);
       case 'time': return Classifier.groupByTime(files);
@@ -183,6 +309,12 @@ export default function App() {
         if (f.iptc?.Keywords && Array.isArray(f.iptc.Keywords)) {
            if (f.iptc.Keywords.some(k => String(k).toLowerCase().includes(q))) return true;
         }
+        // 支持搜索 AI 识别内容
+        if (f.aiData?.labels && Array.isArray(f.aiData.labels)) {
+          // 尝试匹配整个数组中的任意标签
+          const labelString = f.aiData.labels.join(' ');
+          if (labelString.toLowerCase().includes(q)) return true;
+        }
         return false;
       });
     }
@@ -197,12 +329,10 @@ export default function App() {
     return null;
   }, [selectedFiles, files]);
 
-  // [修复] 简化多选逻辑，修复"点击3次"的bug
   const handleSelection = useCallback((file, multi, range) => {
     if (!file) { setSelectedFiles(new Set()); setLastSelectedId(null); return; }
     
     setSelectedFiles(prev => {
-      // 关键修复：在多选模式下，基于 prev 创建新 Set；单选模式下，创建空 Set
       const newSet = new Set(multi ? prev : []); 
       
       if (range && lastSelectedId) {
@@ -213,7 +343,6 @@ export default function App() {
           for (let i = start; i <= end; i++) newSet.add(filteredFiles[i].id);
         }
       } else {
-        // 关键修复：正确的切换逻辑
         if (multi) {
           if (newSet.has(file.id)) {
             newSet.delete(file.id);
@@ -221,7 +350,6 @@ export default function App() {
             newSet.add(file.id);
           }
         } else {
-          // 单选直接覆盖
           newSet.clear();
           newSet.add(file.id);
         }
@@ -280,7 +408,6 @@ export default function App() {
     setContextMenu(null);
   };
 
-  // 复制：统一为复制路径（多选或单选，按键或右击）
   const handleCopy = useCallback(async () => {
     let targets = [];
 
@@ -355,14 +482,10 @@ export default function App() {
     }
   };
 
-  // [新增] 全局键盘监听 (Ctrl+C / Delete)
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Ctrl+C 或 Command+C
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
-        // 检查是否正在编辑文本 (避免在详情页输入备注时触发复制)
         if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
-        
         e.preventDefault();
         handleCopy();
       }
@@ -385,6 +508,7 @@ export default function App() {
       setImportedPaths(new Set());
       setSelectedFiles(new Set());
       setSelectedGroup(null);
+      setAiQueue([]); // 清空 AI 队列
     }
   };
 
@@ -410,11 +534,19 @@ export default function App() {
             <div className="relative group w-full">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
                 <input className="pl-9 pr-3 py-1.5 bg-slate-100 border-transparent focus:bg-white focus:border-blue-500 border rounded-md text-sm w-full transition-all focus:ring-2 focus:ring-blue-500/20" 
-                  placeholder="搜索文件名、备注..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+                  placeholder="搜索..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
             </div>
          </div>
 
          <div className="flex items-center gap-1 w-auto justify-end shrink-0 ml-4">
+           {/* AI 队列状态指示器 */}
+           {(aiQueue.length > 0 || isProcessingAI) && (
+             <div className="flex items-center mr-3 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded-full animate-pulse">
+               <Sparkles className="w-3 h-3 mr-1" />
+               <span>AI 识别中: {aiQueue.length + (isProcessingAI ? 1 : 0)}</span>
+             </div>
+           )}
+
            <Button variant="secondary" onClick={onImportClick} className="mr-1 h-8" title="导入文件夹">
              <Folder className="w-4 h-4 mr-2 text-blue-600" /> 导入
            </Button>

@@ -1,7 +1,7 @@
 {
   "name": "picwatch-desktop",
   "private": true,
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "PicWatch: 快速浏览、分组与元数据查看的图片管理工具",
   "main": "electron/main.js",
   "type": "module",

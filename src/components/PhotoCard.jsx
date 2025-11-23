@@ -26,17 +26,15 @@ const PhotoCard = ({ file, selected, onSelect, onDoubleClick, onContextMenu }) =
   // 确定是否是 AI 内容 (用于样式微调)
   const isAiContent = file.aiData?.labels?.length > 0;
 
-  const getRemarkTitle = () => {
-    const remark = (file.exif && file.exif.ImageDescription) || (file.iptc && file.iptc.Caption) || '';
-    if (!remark || typeof remark !== 'string') return null;
-    const parts = remark.trim().split(/[_、，,;\s]+/).filter(Boolean);
-    if (parts.length === 0) return null;
-    if (/工程项目|项目|工程/.test(parts[0]) && parts.length >= 2) return parts[1];
-    const candidate = parts.find(p => /\d{4}/.test(p)) || parts[0];
-    return candidate;
+  const getProjectNameFromRemark = () => {
+    const remark = (file.exif?.ImageDescription || file.iptc?.Caption || '').trim();
+    if (!remark) return null;
+    const parts = remark.split('_').map(s => s.trim()).filter(Boolean);
+    if (parts.length >= 2) return parts[1];
+    return null;
   };
 
-  const overlayLabel = getRemarkTitle() || file.parent || file.name;
+  const overlayLabel = getProjectNameFromRemark() || (file.parent || file.name);
 
   return (
     <div 
@@ -53,39 +51,40 @@ const PhotoCard = ({ file, selected, onSelect, onDoubleClick, onContextMenu }) =
         onContextMenu(e, file);
       }}
       className={`
-        group relative flex flex-col rounded-lg border bg-white transition-all duration-200 select-none h-auto
+        group relative flex flex-col rounded-lg bg-transparent transition-all duration-200 select-none h-auto
         ${selected 
-          ? 'ring-2 ring-blue-500 border-blue-500 shadow-md z-10' 
-          : 'border-slate-200 hover:border-slate-300 hover:shadow-md'}
+          ? 'ring-2 ring-blue-500 shadow-md z-10' 
+          : 'hover:shadow-md'}
       `}
     >
-      <div className="aspect-[4/3] w-full overflow-hidden rounded-t-lg bg-slate-100 relative flex items-center justify-center shrink-0">
+      <div className="w-full overflow-hidden rounded-t-lg bg-transparent relative">
         {file.thumbnail ? (
           <img 
             src={file.thumbnail} 
             alt={file.name}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            className="w-full h-auto object-contain transition-transform duration-500 transform-gpu group-hover:scale-105"
             loading="lazy"
           />
         ) : (
-          <ImageIcon className="w-8 h-8 text-slate-300" />
+          <div className="flex items-center justify-center py-12">
+            <ImageIcon className="w-8 h-8 text-slate-300" />
+          </div>
         )}
         
         {/* 底部遮罩：悬停时显示完整内容 */}
-        <div className={`absolute inset-x-0 bottom-0 bg-black/60 p-1.5 backdrop-blur-[2px] transition-opacity duration-200 flex justify-center items-center text-[10px] text-white/90 font-medium ${selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+        <div className={`absolute inset-x-0 bottom-0 bg-black/60 p-1 backdrop-blur-[2px] transition-opacity duration-200 flex justify-center items-center text-[10px] text-white/90 font-medium ${selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
           <span className="truncate max-w-full px-1" title={overlayLabel}>{overlayLabel}</span>
         </div>
       </div>
 
-      {/* 内容区域：不再使用 h-16 固定高度或 truncate，允许内容撑开 */}
-      <div className="p-2.5 flex flex-col gap-1.5">
+      <div className="px-2 py-0 flex flex-col gap-0">
         <p 
           className={`text-xs font-medium text-slate-700 break-words whitespace-normal leading-relaxed ${isAiContent ? 'text-blue-700' : ''}`} 
           title={file.name}
         >
           {displayContent}
         </p>
-        <div className="flex items-center justify-between text-[10px] text-slate-400 mt-auto pt-1">
+        <div className="flex items-center justify-between text-[10px] text-slate-400 pt-0 pb-0">
           <span>{file.dims ? `${file.dims.w}×${file.dims.h}` : '...'}</span>
           <span>{formatDate(file.dateOriginal)}</span>
         </div>
