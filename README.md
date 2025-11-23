@@ -63,17 +63,6 @@
   - 补充开发与构建脚本说明
   - 新增 UOS/Linux 压缩包发布（`PicWatch-1.0.1-linux-x64.tar.gz`）
 
-## 发布与下载
-- Release 页面：`https://github.com/monkbird/pic_watch/releases/latest`
-- Windows 安装包：`https://github.com/monkbird/pic_watch/releases/latest/download/PicWatch.Setup.1.0.3.exe`
-- Linux x64 `.deb`：`https://github.com/monkbird/pic_watch/releases/latest/download/picwatch-desktop_1.0.3_amd64.deb`
-- Linux arm64 `.deb`：`https://github.com/monkbird/pic_watch/releases/latest/download/picwatch-desktop_1.0.3_arm64.deb`
-- Linux x64 AppImage：`https://github.com/monkbird/pic_watch/releases/latest/download/PicWatch-1.0.3.AppImage`
-- Linux arm64 AppImage：`https://github.com/monkbird/pic_watch/releases/latest/download/PicWatch-1.0.3-arm64.AppImage`
-- UOS/Linux 压缩包（x64）：`https://github.com/monkbird/pic_watch/releases/latest/download/PicWatch-1.0.3-linux-x64.tar.gz`
-  - 使用：`chmod +x picwatch && ./picwatch`
-  - ARM 说明：arm64 版本适用于 aarch64 设备（UOS/Deepin ARM 版）
-
 ## 项目优化与修改总结
 
 ### 核心架构优化（Performance & Architecture）
