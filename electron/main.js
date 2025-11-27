@@ -2,14 +2,11 @@ import { app, BrowserWindow, ipcMain, dialog, shell, clipboard } from 'electron'
 import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
-// 在文件顶部引入
-import clipboardEx from 'electron-clipboard-ex'; 
-// 注意：如果是 ESM 模块可能需要 require，如果是 vite+electron 可能需要配置
-// 稳妥起见，可以用 require
  
 
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+let clipboardEx = null;
 
 // 允许扫描的图片扩展名
 const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.heic']);
@@ -236,11 +233,17 @@ ipcMain.handle('shell:showItemInFolder', (event, filePath) => {
 });
 
 // [终极修复] 使用原生模块复制文件
-ipcMain.handle('clipboard:copyFiles', (event, filePaths) => {
+ipcMain.handle('clipboard:copyFiles', async (event, filePaths) => {
   if (!filePaths || filePaths.length === 0) return false;
 
   try {
-    // 这个库会自动处理所有平台的差异，非常稳定
+    if (!clipboardEx && (process.platform === 'win32' || process.platform === 'darwin')) {
+      try {
+        const mod = await import('electron-clipboard-ex');
+        clipboardEx = mod.default || mod;
+      } catch {}
+    }
+    if (!clipboardEx) return false;
     clipboardEx.writeFilePaths(filePaths);
     return true;
   } catch (error) {
