@@ -10,6 +10,10 @@ on:
         description: 'Tag to release (e.g., v1.0.3)'
         required: true
         type: string
+      build_ref:
+        description: 'Git ref to build from (default: main)'
+        required: false
+        type: string
   repository_dispatch:
     types: [linux-release-run]
 
@@ -28,7 +32,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag_name || github.event.client_payload.tag_name || github.ref_name }}
+          ref: ${{ github.event.inputs.build_ref || 'main' }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
