@@ -33,28 +33,29 @@ export class AIService {
     }
   }
 
-  // 修改 analyzeImage 方法
-  async analyzeImage(fileId, imagePath, onUpdate) {
+  // 修改 analyzeImage 方法，接收并透传配置
+  async analyzeImage(fileId, imagePath, config, onUpdate) {
     if (this.callbacks.has(fileId)) return;
 
-    // 立即通知 UI 正在转换图片
-    onUpdate({ status: 'loading', message: '正在预处理图片...' });
+    if (typeof onUpdate === 'function') {
+      onUpdate({ status: 'loading', message: '正在预处理图片...' });
+    }
 
-    // 1. 转换图片 (使用传入的 path 或 thumbnail)
-    // 注意：建议传入 file.thumbnail (如果是 blob url) 或者 file.path
     const base64Image = await this.fileToBase64(imagePath);
 
     if (!base64Image) {
-      onUpdate({ status: 'error', message: '图片读取失败' });
+      if (typeof onUpdate === 'function') {
+        onUpdate({ status: 'error', message: '图片读取失败' });
+      }
       return;
     }
 
-    // 2. 发送给 Worker
     this.callbacks.set(fileId, onUpdate);
-    this.worker.postMessage({ 
-      type: 'analyze', 
-      id: fileId, 
-      imageUrl: base64Image 
+    this.worker.postMessage({
+      type: 'analyze',
+      id: fileId,
+      imageUrl: base64Image,
+      config
     });
   }
   
