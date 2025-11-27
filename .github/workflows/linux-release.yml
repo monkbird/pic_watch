@@ -37,7 +37,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci --omit=optional
+        run: npm install --omit=optional
 
       - name: Build Linux artifacts (deb)
         run: npx electron-builder -p never --linux deb --${{ matrix.arch }}
