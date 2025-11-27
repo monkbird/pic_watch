@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Info, X, Copy, Sparkles, Loader2, Pencil, Check } from 'lucide-react';
+import { Info, X, Copy, Sparkles, Loader2, Pencil, Check, Settings } from 'lucide-react';
 import { Button } from './ui/Primitives';
 import { humanSize, formatDate } from '../utils/metadata';
-import { aiInstance } from '../utils/aiService'; // 引入 AI 服务
+import { aiInstance } from '../utils/aiService';
 
 const InfoRow = ({ label, value, copyable }) => (
   <div className="group flex flex-col py-1.5 border-b border-slate-100 last:border-0">
@@ -24,10 +24,10 @@ const InfoRow = ({ label, value, copyable }) => (
   </div>
 );
 
-const DetailsPanel = ({ file, onClose, onUpdate }) => { // 增加 onUpdate 参数
+const DetailsPanel = ({ file, onClose, onUpdate, aiConfig, onOpenSettings }) => {
   if (!file) return null;
   
-  // --- AI 相关状态与逻辑 (新增) ---
+  // --- AI 相关状态与逻辑 ---
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [aiStatusMsg, setAiStatusMsg] = useState("");
   
@@ -41,11 +41,19 @@ const DetailsPanel = ({ file, onClose, onUpdate }) => { // 增加 onUpdate 参�
   }, [file.id]);
 
   const handleAiAnalyze = () => {
+    // 检查配置
+    if (!aiConfig) {
+      if (confirm("AI 功能尚未配置，是否现在去配置？")) {
+        onOpenSettings && onOpenSettings();
+      }
+      return;
+    }
+
     setIsAnalyzing(true);
     setAiStatusMsg("准备中...");
 
-    // 调用 AI 服务
-    aiInstance.analyzeImage(file.id, file.thumbnail, ({ status, result, message }) => {
+    // 调用 AI 服务 (传递 aiConfig)
+    aiInstance.analyzeImage(file.id, file.thumbnail, aiConfig, ({ status, result, message }) => {
       if (status === 'loading' || status === 'processing') {
         setAiStatusMsg(message);
       } else if (status === 'complete') {
@@ -86,7 +94,6 @@ const DetailsPanel = ({ file, onClose, onUpdate }) => { // 增加 onUpdate 参�
   const camera = [file.exif?.Make, file.exif?.Model].filter(Boolean).join(' ');
 
   return (
-    // 宽度和边框由 App.jsx 控制，此处只保留内部结构
     <div className="h-full flex flex-col bg-white">
       <div className="h-12 border-b border-slate-200 flex items-center justify-between px-4 bg-slate-50/50 shrink-0">
         <span className="font-semibold text-sm text-slate-700 flex items-center gap-2"><Info className="w-4 h-4" /> 属性详情</span>
@@ -99,14 +106,20 @@ const DetailsPanel = ({ file, onClose, onUpdate }) => { // 增加 onUpdate 参�
            {file.thumbnail ? <img src={file.thumbnail} alt="preview" className="max-w-full max-h-48 object-contain shadow-sm rounded" /> : <span className="text-slate-400 text-xs">无预览</span>}
         </div>
 
-        {/* --- 新增：AI 智能识别区域 (插入位置) --- */}
+        {/* --- AI 智能识别区域 --- */}
         <div className="mb-6 border border-blue-100 bg-blue-50/30 rounded-lg p-3">
           <div className="flex items-center justify-between mb-2">
             <h4 className="text-xs font-bold text-blue-700 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5" /> AI 场景识别
             </h4>
-            {/* 如果没有标签且没在分析，显示按钮 */}
-            {!aiLabels.length && !isAnalyzing && (
+            {/* 如果没有配置，显示设置图标 */}
+            {!aiConfig && !isAnalyzing && (
+              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-blue-400" onClick={onOpenSettings} title="配置 AI">
+                <Settings className="w-3.5 h-3.5" />
+              </Button>
+            )}
+            {/* 如果已配置且没有标签且没在分析，显示开始按钮 */}
+            {aiConfig && !aiLabels.length && !isAnalyzing && (
               <Button size="sm" variant="ghost" className="h-6 text-[10px] bg-white border border-blue-200 hover:bg-blue-50 text-blue-600" onClick={handleAiAnalyze}>
                 开始识别
               </Button>
@@ -135,7 +148,7 @@ const DetailsPanel = ({ file, onClose, onUpdate }) => { // 增加 onUpdate 参�
             </div>
           ) : (
             <div className="text-[10px] text-slate-400 text-center py-1">
-              暂无识别信息
+              {aiConfig ? "暂无识别信息" : "请先配置 AI 模型"}
             </div>
           )}
         </div>

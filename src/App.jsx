@@ -2,13 +2,14 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { 
   Folder, Image as ImageIcon, Search, List, Info, Maximize2, Trash2, Grid, 
   RefreshCw, Download, ChevronRight, FolderOpen, Copy, RotateCw, XCircle,
-  Sparkles
+  Sparkles, Settings
 } from 'lucide-react';
 
 import Sidebar from './components/Sidebar.jsx';
 import PhotoGrid from './components/PhotoGrid.jsx';
 import DetailsPanel from './components/DetailsPanel.jsx';
 import ImageViewer from './components/ImageViewer.jsx';
+import AISettingsModal from './components/AISettingsModal.jsx';
 import { Button } from './components/ui/Primitives.jsx';
 import { extractMetadata, ALLOWED_EXTENSIONS } from './utils/metadata.js';
 import { Classifier } from './utils/classifier.js';
@@ -33,19 +34,35 @@ export default function App() {
   const [isScanning, setIsScanning] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
   
-  // AI 队列相关状态
   const [aiQueue, setAiQueue] = useState([]);
   const [isProcessingAI, setIsProcessingAI] = useState(false);
+  
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [aiConfig, setAiConfig] = useState(null);
   
   const fileInputRef = useRef(null);
   const contextMenuTimerRef = useRef(null);
 
-  // 生成用于缓存的唯一 Key
+  useEffect(() => {
+    const saved = localStorage.getItem('picwatch_ai_config');
+    if (saved) {
+      try {
+        setAiConfig(JSON.parse(saved));
+      } catch (e) {
+        console.error("Failed to load AI config", e);
+      }
+    }
+  }, []);
+
+  const handleSaveSettings = (newConfig) => {
+    setAiConfig(newConfig);
+    localStorage.setItem('picwatch_ai_config', JSON.stringify(newConfig));
+  };
+
   const getFileCacheKey = (file) => {
     return `ai_cache_${file.name}_${file.size}_${file.lastModified}`;
   };
 
-  // 从本地存储加载缓存
   const loadAiCache = (file) => {
     try {
       const key = getFileCacheKey(file);
@@ -59,7 +76,6 @@ export default function App() {
     return null;
   };
 
-  // 保存缓存
   const saveAiCache = (file, data) => {
     try {
       const key = getFileCacheKey(file);
@@ -91,12 +107,10 @@ export default function App() {
         const metadata = await extractMetadata(f);
         const fileObj = { ...metadata, fileObj: (f instanceof File ? f : null) };
 
-        // 检查是否有 AI 识别缓存
         const cachedAi = loadAiCache(fileObj);
         if (cachedAi) {
           fileObj.aiData = cachedAi;
         } else {
-          // 如果没有缓存，标记需要 AI 识别
           fileObj.needsAiAnalysis = true;
         }
 
@@ -111,7 +125,6 @@ export default function App() {
           newUnique.forEach(f => existingFileMap.set(f.path, f));
           setFiles(prev => [...prev, ...newUnique]);
           
-          // 收集需要 AI 识别的文件 ID
           newUnique.forEach(f => {
             if (f.needsAiAnalysis) {
               newAiQueueItems.push(f.id);
@@ -127,7 +140,6 @@ export default function App() {
 
     if (updateMode) {
       setFiles(processedFiles);
-      // 更新模式下，检查是否有新文件或未识别文件需要加入队列
       processedFiles.forEach(f => {
         if (f.needsAiAnalysis && !f.aiData) {
            newAiQueueItems.push(f.id);
@@ -136,7 +148,6 @@ export default function App() {
       addedCount = processedFiles.length - existingFileMap.size;
     }
 
-    // 更新 AI 队列
     if (newAiQueueItems.length > 0) {
       setAiQueue(prev => [...prev, ...newAiQueueItems]);
     }
@@ -144,51 +155,36 @@ export default function App() {
     return addedCount;
   };
 
-  // 后台 AI 处理队列 Effect
   useEffect(() => {
     const processNext = async () => {
       if (aiQueue.length === 0 || isProcessingAI) return;
+      if (!aiConfig) return;
 
       const fileId = aiQueue[0];
       const file = files.find(f => f.id === fileId);
 
-      // 如果文件不存在或者已经有数据了，跳过
       if (!file || file.aiData?.labels) {
         setAiQueue(prev => prev.slice(1));
         return;
       }
 
       setIsProcessingAI(true);
-
-      // 更新 UI 状态显示 "识别中"
       updateFileMetadata(fileId, { aiStatus: 'processing' });
 
       try {
-        // 调用 AI 服务
-        aiInstance.analyzeImage(fileId, file.thumbnail, ({ status, result, message }) => {
+        aiInstance.analyzeImage(fileId, file.thumbnail, aiConfig, ({ status, result, message }) => {
           if (status === 'complete') {
             const aiData = { 
               labels: result,
               processedAt: new Date().toISOString()
             };
-            
-            // 存入缓存
             saveAiCache(file, aiData);
-            
-            // 更新文件状态
-            updateFileMetadata(fileId, { 
-              aiData, 
-              aiStatus: 'complete' 
-            });
-            
-            // 移除出队列并继续
+            updateFileMetadata(fileId, { aiData, aiStatus: 'complete' });
             setAiQueue(prev => prev.slice(1));
             setIsProcessingAI(false);
           } else if (status === 'error') {
             console.error(`AI Error for ${file.name}:`, message);
             updateFileMetadata(fileId, { aiStatus: 'error' });
-            
-            // 即使出错也移出队列，避免阻塞
             setAiQueue(prev => prev.slice(1));
             setIsProcessingAI(false);
           }
@@ -201,7 +197,7 @@ export default function App() {
     };
 
     processNext();
-  }, [aiQueue, isProcessingAI, files]);
+  }, [aiQueue, isProcessingAI, files, aiConfig]);
 
 
   const handleElectronImport = async () => {
@@ -277,7 +273,6 @@ export default function App() {
 
   const groups = useMemo(() => {
     if (!files) return {};
-    // AI 内容不能用来分组，保持原有逻辑
     switch (groupMode) {
       case 'folder': return Classifier.groupByFolder(files);
       case 'time': return Classifier.groupByTime(files);
@@ -309,9 +304,7 @@ export default function App() {
         if (f.iptc?.Keywords && Array.isArray(f.iptc.Keywords)) {
            if (f.iptc.Keywords.some(k => String(k).toLowerCase().includes(q))) return true;
         }
-        // 支持搜索 AI 识别内容
         if (f.aiData?.labels && Array.isArray(f.aiData.labels)) {
-          // 尝试匹配整个数组中的任意标签
           const labelString = f.aiData.labels.join(' ');
           if (labelString.toLowerCase().includes(q)) return true;
         }
@@ -428,26 +421,74 @@ export default function App() {
     if (targets.length === 0) return;
 
     const paths = targets.map(f => f.path);
-    await navigator.clipboard.writeText(paths.join('\n'));
-    alert(`已复制 ${paths.length} 个路径`);
+
+    if (window.electron?.copyFiles) {
+      // Electron 环境：调用原生文件复制（CF_HDROP）
+      const success = await window.electron.copyFiles(paths);
+      if (success) {
+        // 成功后可以稍微提示一下，或者静默
+        console.log(`已复制 ${paths.length} 个文件`);
+      } else {
+        alert("复制文件失败");
+      }
+    } else {
+      // Web 环境：降级为路径文本
+      await navigator.clipboard.writeText(paths.join('\n'));
+      alert(`已复制 ${paths.length} 个路径 (Web模式不支持文件实体复制)`);
+    }
+    
     setContextMenu(null);
   }, [selectedFiles, filteredFiles, contextMenu, activeFile]);
 
-  const exportGroups = () => {
-    const exportData = { timestamp: new Date().toISOString(), mode: groupMode, groups: Object.entries(groups).map(([k, v]) => ({ groupName: k, count: v.length, files: v.map(f => f.name) })) };
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = `picwatch_groups_${groupMode}.json`; a.click();
-  };
-
-  const handleDeleteFiles = (filesToDeleteSet) => {
+  // [核心修改] 实现真正的文件删除
+  const handleDeleteFiles = async (filesToDeleteSet) => {
     if (!filesToDeleteSet || filesToDeleteSet.size === 0) return;
     
-    if (confirm(`确定要移除这 ${filesToDeleteSet.size} 个项目吗？`)) {
+    if (!window.electron?.trashFile) {
+      alert("Web 模式下暂不支持删除本地文件，仅从列表移除。");
       setFiles(prev => prev.filter(f => !filesToDeleteSet.has(f.id)));
       const newSelected = new Set(selectedFiles);
       filesToDeleteSet.forEach(id => newSelected.delete(id));
       setSelectedFiles(newSelected);
+      return;
+    }
+
+    const count = filesToDeleteSet.size;
+    if (confirm(`确定要将这 ${count} 个文件移至回收站吗？\n(此操作会删除本地文件)`)) {
+      const idsToDelete = Array.from(filesToDeleteSet);
+      const targetFiles = files.filter(f => filesToDeleteSet.has(f.id));
+      
+      let deletedCount = 0;
+      let fallbackHard = false;
+      for (const file of targetFiles) {
+        try {
+          const success = await window.electron.trashFile(file.path);
+          if (success) {
+            deletedCount++;
+          } else {
+            if (!fallbackHard) {
+              fallbackHard = confirm("移至回收站失败，是否改为永久删除？");
+            }
+            if (fallbackHard && window.electron?.deleteFilePermanent) {
+              const hard = await window.electron.deleteFilePermanent(file.path);
+              if (hard) deletedCount++;
+            }
+          }
+        } catch (e) {
+          console.error("Delete failed:", file.path);
+        }
+      }
+
+      if (deletedCount > 0) {
+        // 只有真正删除了才更新 UI
+        setFiles(prev => prev.filter(f => !filesToDeleteSet.has(f.id)));
+        const newSelected = new Set(selectedFiles);
+        filesToDeleteSet.forEach(id => newSelected.delete(id));
+        setSelectedFiles(newSelected);
+        console.log(`已删除 ${deletedCount} 个文件`);
+      } else {
+        alert("删除失败，文件可能被占用或权限不足。");
+      }
     }
   };
 
@@ -464,6 +505,13 @@ export default function App() {
     }
     handleDeleteFiles(targets);
     setContextMenu(null);
+  };
+
+  const exportGroups = () => {
+    const exportData = { timestamp: new Date().toISOString(), mode: groupMode, groups: Object.entries(groups).map(([k, v]) => ({ groupName: k, count: v.length, files: v.map(f => f.name) })) };
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `picwatch_groups_${groupMode}.json`; a.click();
   };
 
   const handleNext = () => {
@@ -508,7 +556,7 @@ export default function App() {
       setImportedPaths(new Set());
       setSelectedFiles(new Set());
       setSelectedGroup(null);
-      setAiQueue([]); // 清空 AI 队列
+      setAiQueue([]); 
     }
   };
 
@@ -522,6 +570,13 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen w-full bg-white text-slate-900 font-sans overflow-hidden select-none">
+      <AISettingsModal 
+        isOpen={isSettingsOpen} 
+        onClose={() => setIsSettingsOpen(false)}
+        onSave={handleSaveSettings}
+        initialConfig={aiConfig}
+      />
+
       <input type="file" ref={fileInputRef} onChange={handleWebImport} className="hidden" webkitdirectory="" directory="" multiple />
 
       <header className="h-14 border-b border-slate-200 bg-white flex items-center px-4 gap-3 shrink-0 z-30 shadow-sm justify-between">
@@ -539,13 +594,25 @@ export default function App() {
          </div>
 
          <div className="flex items-center gap-1 w-auto justify-end shrink-0 ml-4">
-           {/* AI 队列状态指示器 */}
-           {(aiQueue.length > 0 || isProcessingAI) && (
+           {!aiConfig ? (
+             <div 
+               className="flex items-center mr-3 text-xs text-amber-600 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded-full cursor-pointer transition-colors"
+               onClick={() => setIsSettingsOpen(true)}
+               title="点击配置 AI 模型"
+             >
+               <Sparkles className="w-3 h-3 mr-1" />
+               <span>未配置 AI</span>
+             </div>
+           ) : (aiQueue.length > 0 || isProcessingAI) ? (
              <div className="flex items-center mr-3 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded-full animate-pulse">
                <Sparkles className="w-3 h-3 mr-1" />
                <span>AI 识别中: {aiQueue.length + (isProcessingAI ? 1 : 0)}</span>
              </div>
-           )}
+           ) : null}
+
+           <Button variant="ghost" size="icon" className="h-8 w-8 mr-1" onClick={() => setIsSettingsOpen(true)} title="AI 模型设置">
+             <Settings className={`w-4 h-4 ${!aiConfig ? 'text-red-500' : 'text-slate-600'}`} />
+           </Button>
 
            <Button variant="secondary" onClick={onImportClick} className="mr-1 h-8" title="导入文件夹">
              <Folder className="w-4 h-4 mr-2 text-blue-600" /> 导入
@@ -600,8 +667,8 @@ export default function App() {
              {selectedFiles.size > 0 && (
                <div className="flex items-center gap-3 animate-in slide-in-from-top-2 duration-200 ml-4">
                  <span className="text-blue-600 font-medium whitespace-nowrap">已选中 {selectedFiles.size} 项</span>
-                 <button className="hover:text-blue-600 flex items-center gap-1 transition-colors mr-2 whitespace-nowrap" onClick={handleCopy} title="复制所选路径到剪贴板"><Copy className="w-3 h-3" /> 复制路径</button>
-                 <button className="hover:text-red-600 flex items-center gap-1 transition-colors whitespace-nowrap" onClick={deleteSelected}><Trash2 className="w-3 h-3" /> 移除</button>
+                 <button className="hover:text-blue-600 flex items-center gap-1 transition-colors mr-2 whitespace-nowrap" onClick={handleCopy} title="复制所选文件"><Copy className="w-3 h-3" /> 复制文件</button>
+                 <button className="hover:text-red-600 flex items-center gap-1 transition-colors whitespace-nowrap" onClick={deleteSelected}><Trash2 className="w-3 h-3" /> 移除 (删除文件)</button>
                </div>
              )}
           </div>
@@ -616,14 +683,22 @@ export default function App() {
           `}
         >
            <div className="w-80 h-full">
-              {activeFile && <DetailsPanel file={activeFile} onClose={() => setShowDetails(false)} onUpdate={(updates) => updateFileMetadata(activeFile.id, updates)} />}
+              {activeFile && (
+                <DetailsPanel 
+                  file={activeFile} 
+                  onClose={() => setShowDetails(false)} 
+                  onUpdate={(updates) => updateFileMetadata(activeFile.id, updates)} 
+                  aiConfig={aiConfig}
+                  onOpenSettings={() => setIsSettingsOpen(true)}
+                />
+              )}
            </div>
         </div>
       </div>
 
       <footer className="h-7 bg-slate-900 text-slate-400 text-[11px] flex items-center px-4 justify-between shrink-0 z-40">
         <div>总计: {files.length}</div>
-        {files.length > 0 && <div>支持 Ctrl+C 复制路径</div>}
+        {files.length > 0 && <div>支持 Ctrl+C 复制文件</div>}
       </footer>
 
       <ImageViewer 
@@ -669,11 +744,11 @@ export default function App() {
           
           <div className="h-px bg-slate-100 my-1" />
           <button className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2" onClick={handleCopy}>
-            <Copy className="w-3.5 h-3.5" /> 复制路径
+            <Copy className="w-3.5 h-3.5" /> 复制文件
           </button>
           <div className="h-px bg-slate-100 my-1" />
           <button className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600 flex items-center gap-2" onClick={onContextMenuDelete}>
-            <Trash2 className="w-3.5 h-3.5" /> 从列表中移除
+            <Trash2 className="w-3.5 h-3.5" /> 从列表中移除(删文件)
           </button>
         </div>
       )}

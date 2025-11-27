@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   base: './', // 关键：确保 Electron 加载资源使用相对路径
   server: {
-    port: 5173
+    port: 5173,
+    strictPort: true
   }
 })

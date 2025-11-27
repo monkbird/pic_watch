@@ -1,21 +1,19 @@
 // src/workers/ai.worker.js
 
-// ================= 配置区域 =================
-// 建议后续将这些移到设置界面，目前为了跑通先硬编码
-const API_KEY = "xxxxxxxxx"; // 例如：sk-xxxxxxxx
-const API_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
-const MODEL_ENDPOINT = "xxxxxxxx"; // 关键！例如：ep-20240520010101-abcde
-// ===========================================
-
 self.addEventListener('message', async (event) => {
-  const { id, imageUrl, type } = event.data;
+  const { id, imageUrl, type, config } = event.data; // 接收 config
 
   if (type === 'analyze') {
+    // 1. 检查配置是否有效
+    if (!config || !config.apiKey || !config.apiUrl || !config.model) {
+      self.postMessage({ id, status: 'error', message: 'AI 未配置，请点击右上角设置进行配置' });
+      return;
+    }
+
     try {
       self.postMessage({ id, status: 'processing', message: '正在上传模型识别...' });
 
-      // 1. 构造 Prompt (提示词)
-      // 针对工地场景进行深度优化
+      // 2. 构造 Prompt (提示词) - 保持不变
       const prompt = `
         请分析这张建筑工地的照片。
         请识别并列出画面中包含的：
@@ -37,11 +35,9 @@ self.addEventListener('message', async (event) => {
         示例格式：["挖掘机", "未佩戴安全帽", "施工横幅", "混凝土搅拌车"]
       `;
 
-      // 2. 构造请求体
-      // 火山引擎兼容 OpenAI 格式，但在 image_url 支持上需要注意
-      // 最好传入 Base64 字符串 (data:image/jpeg;base64,...)
+      // 3. 构造请求体 (使用传入的 config)
       const payload = {
-        model: MODEL_ENDPOINT, // 这里填接入点 ID，不是模型名
+        model: config.model, // 使用配置中的 model 或 endpoint ID
         messages: [
           {
             role: "user",
@@ -50,22 +46,22 @@ self.addEventListener('message', async (event) => {
               {
                 type: "image_url",
                 image_url: {
-                  url: imageUrl // 主线程传过来的必须是 Base64 DataURI
+                  url: imageUrl 
                 }
               }
             ]
           }
         ],
         max_tokens: 500,
-        temperature: 0.1 // 降低随机性，让结果更准确
+        temperature: 0.1 
       };
 
-      // 3. 发起请求
-      const response = await fetch(API_URL, {
+      // 4. 发起请求 (使用配置中的 URL 和 Key)
+      const response = await fetch(config.apiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${API_KEY}`
+          "Authorization": `Bearer ${config.apiKey}`
         },
         body: JSON.stringify(payload)
       });
@@ -78,14 +74,12 @@ self.addEventListener('message', async (event) => {
       const data = await response.json();
       const content = data.choices[0].message.content;
 
-      // 4. 清洗数据 (防止大模型有时候还是会忍不住加 Markdown)
       const cleanContent = content.replace(/```json|```/g, '').trim();
       
       let resultLabels = [];
       try {
         resultLabels = JSON.parse(cleanContent);
       } catch (e) {
-        // 万一解析失败，按换行符或逗号分割，至少能显示点东西
         resultLabels = cleanContent.split(/[\n,，]/).map(s => s.trim()).filter(s => s.length > 1);
       }
 
@@ -96,7 +90,7 @@ self.addEventListener('message', async (event) => {
       });
 
     } catch (error) {
-      console.error('Volcano API Error:', error);
+      console.error('API Error:', error);
       self.postMessage({ id, status: 'error', message: '识别失败: ' + error.message });
     }
   }

@@ -2,6 +2,12 @@ import { app, BrowserWindow, ipcMain, dialog, shell, clipboard } from 'electron'
 import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
+// 在文件顶部引入
+import clipboardEx from 'electron-clipboard-ex'; 
+// 注意：如果是 ESM 模块可能需要 require，如果是 vite+electron 可能需要配置
+// 稳妥起见，可以用 require
+ 
+
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -9,15 +15,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.heic']);
 
 // === 性能优化：强制开启 GPU 加速 ===
-// 忽略 GPU 黑名单，强制开启硬件加速
 app.commandLine.appendSwitch('ignore-gpu-blacklist');
-// 开启 GPU 光栅化 (渲染加速)
 app.commandLine.appendSwitch('enable-gpu-rasterization');
-// 开启零拷贝 (减少内存到显存的复制)
 app.commandLine.appendSwitch('enable-zero-copy');
-// 尝试请求高性能 GPU (适用于双显卡笔记本，优先调用独显)
 app.commandLine.appendSwitch('force_high_performance_gpu');
-// 增加渲染进程的显存限制 (默认可能较小)
 app.commandLine.appendSwitch('max-active-webgl-contexts', '100'); 
 
 let mainWindow;
@@ -31,13 +32,11 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: false, // 允许加载本地 file:// 图片资源
-      // 开启后台节流限制 (可选，设为 false 可能提高后台处理速度但增加功耗)
       backgroundThrottling: false 
     },
     autoHideMenuBar: true
   });
 
-  // 开发环境加载本地服务，生产环境加载打包文件
   const isDev = !app.isPackaged;
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
@@ -63,21 +62,49 @@ app.on('window-all-closed', function () {
 
 // Windows: 构建 DROPFILES 结构 (CF_HDROP)
 function createWindowsDropFilesBuffer(paths) {
-  // DROPFILES 结构体 (20字节头)
-  const header = Buffer.alloc(20);
-  header.writeInt32LE(20, 0); // pFiles offset
-  header.writeInt32LE(1, 16); // fWide = 1 (Unicode)
-
-  // 路径列表转换: UTF-16LE 编码，以 \0\0 分隔，以 \0\0\0\0 结尾
+  // 1. 计算所有路径的总字节数 (UTF-16LE)
+  // 路径之间用 \0 分隔 (2字节)，列表结尾再加 \0 (2字节)
+  let pathsSize = 0;
   const pathBuffers = paths.map(p => {
-    // Windows 路径必须使用反斜杠
-    const winPath = p.replace(/\//g, '\\');
-    return Buffer.from(winPath + '\0', 'ucs2'); 
+    // 必须使用反斜杠，且绝对不能有混用的斜杠
+    const winPath = path.normalize(p).replace(/\//g, '\\');
+    const buffer = Buffer.from(winPath + '\0', 'ucs2'); // ucs2 即 utf-16le
+    pathsSize += buffer.length;
+    return buffer;
   });
+  // 列表结尾的双 NULL (一个属于最后一个路径，一个是列表终止符)
+  // map 里已经给每个路径加了 \0，所以只需要额外加一个 \0 (2字节)
+  pathsSize += 2; 
+
+  // 2. 构建 DROPFILES 结构体 (20字节)
+  const headerSize = 20;
+  const totalSize = headerSize + pathsSize;
+  const buffer = Buffer.alloc(totalSize);
+
+  // DROPFILES.pFiles (偏移量，指向路径数据开始的位置)
+  buffer.writeInt32LE(headerSize, 0); 
   
-  const pathsBuffer = Buffer.concat([...pathBuffers, Buffer.from('\0', 'ucs2')]);
+  // DROPFILES.pt (鼠标坐标，不需要，填0)
+  buffer.writeInt32LE(0, 4); // x
+  buffer.writeInt32LE(0, 8); // y
   
-  return Buffer.concat([header, pathsBuffer]);
+  // DROPFILES.fNC (非客户区，填0)
+  buffer.writeInt32LE(0, 12);
+  
+  // DROPFILES.fWide (宽字符标志，必须为 1)
+  buffer.writeInt32LE(1, 16);
+
+  // 3. 写入路径数据
+  let offset = headerSize;
+  for (const pathBuf of pathBuffers) {
+    pathBuf.copy(buffer, offset);
+    offset += pathBuf.length;
+  }
+  
+  // 写入列表终止符 \0 (2字节)
+  buffer.write('\0', offset, 'ucs2');
+
+  return buffer;
 }
 
 // macOS: 构建 XML Plist (NSFilenamesPboardType)
@@ -102,7 +129,6 @@ function createLinuxUriList(paths) {
 // --- 通用扫描逻辑 ---
 async function scanDirectoryFiles(rootPath) {
   const files = [];
-  // 预先处理根目录路径，作为统一的 Group Key
   const groupKey = rootPath.split(path.sep).join('/');
 
   async function scanDir(currentPath) {
@@ -118,8 +144,8 @@ async function scanDirectoryFiles(rootPath) {
             const stats = await fs.stat(fullPath);
             files.push({
               name: entry.name,
-              path: fullPath, // 绝对路径
-              parent: groupKey, // 扁平化分组：使用导入根目录名
+              path: fullPath,
+              parent: groupKey,
               size: stats.size,
               lastModified: stats.mtimeMs
             });
@@ -136,9 +162,8 @@ async function scanDirectoryFiles(rootPath) {
 }
 
 
-// --- IPC Handlers (前后端通信) ---
+// --- IPC Handlers ---
 
-// 1. 选择文件夹并扫描 (返回 { rootPath, files })
 ipcMain.handle('dialog:openDirectory', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory']
@@ -154,13 +179,11 @@ ipcMain.handle('dialog:openDirectory', async () => {
   return { rootPath, files };
 });
 
-// [新增] 2. 重新扫描指定目录 (用于刷新)
 ipcMain.handle('fs:scanDirectory', async (event, rootPath) => {
   if (!rootPath) return [];
   return await scanDirectoryFiles(rootPath);
 });
 
-// 3. 读取文件 Buffer (供 exifr 解析元数据)
 ipcMain.handle('fs:readPartialFile', async (event, { filePath, size }) => {
   let fh;
   try {
@@ -185,30 +208,40 @@ ipcMain.handle('fs:readFile', async (event, filePath) => {
   }
 });
 
-// 4. 打开所在文件夹
+ipcMain.handle('fs:deleteFilePermanent', async (event, filePath) => {
+  try {
+    await fs.rm(filePath);
+    return true;
+  } catch (e) {
+    console.error("Delete file error:", e);
+    return false;
+  }
+});
+
+// [新增] 文件删除（移至回收站）
+ipcMain.handle('fs:trashFile', async (event, filePath) => {
+  try {
+    // shell.trashItem 是 Electron 提供的安全删除方法（移入回收站）
+    // 如果希望永久删除，可用 fs.rm / fs.unlink，但通常桌面软件建议用 trash
+    await shell.trashItem(filePath);
+    return true;
+  } catch (e) {
+    console.error("Trash file error:", e);
+    return false;
+  }
+});
+
 ipcMain.handle('shell:showItemInFolder', (event, filePath) => {
   shell.showItemInFolder(filePath);
 });
 
-// 5. 复制文件实体到剪贴板 (原生文件复制)
+// [终极修复] 使用原生模块复制文件
 ipcMain.handle('clipboard:copyFiles', (event, filePaths) => {
-  if (!filePaths || filePaths.length === 0) return;
-  
-  clipboard.clear();
+  if (!filePaths || filePaths.length === 0) return false;
 
   try {
-    if (process.platform === 'win32') {
-      const buffer = createWindowsDropFilesBuffer(filePaths);
-      clipboard.writeBuffer('CF_HDROP', buffer);
-    } else if (process.platform === 'darwin') {
-      const buffer = createMacPboardPlist(filePaths);
-      clipboard.writeBuffer('NSFilenamesPboardType', buffer);
-    } else {
-      const buffer = createLinuxUriList(filePaths);
-      clipboard.writeBuffer('text/uri-list', buffer);
-    }
-    
-    clipboard.writeText(filePaths.join('\n'));
+    // 这个库会自动处理所有平台的差异，非常稳定
+    clipboardEx.writeFilePaths(filePaths);
     return true;
   } catch (error) {
     console.error('Copy files error:', error);
