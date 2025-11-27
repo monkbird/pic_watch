@@ -12,7 +12,7 @@ self.addEventListener('message', async (event) => {
 
   if (type === 'analyze') {
     try {
-      self.postMessage({ id, status: 'processing', message: '正在上传至火山引擎...' });
+      self.postMessage({ id, status: 'processing', message: '正在上传模型识别...' });
 
       // 1. 构造 Prompt (提示词)
       // 针对工地场景进行深度优化
