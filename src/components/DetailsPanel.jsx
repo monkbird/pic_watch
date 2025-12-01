@@ -1,7 +1,8 @@
+// src/components/DetailsPanel.jsx
 import React, { useState, useEffect } from 'react';
 import { Info, X, Copy, Sparkles, Loader2, Pencil, Check, Settings } from 'lucide-react';
 import { Button } from './ui/Primitives';
-import { humanSize, formatDate } from '../utils/metadata';
+import { humanSize, formatDateTime } from '../utils/metadata'; // 引入 formatDateTime
 import { aiInstance } from '../utils/aiService';
 
 const InfoRow = ({ label, value, copyable }) => (
@@ -27,40 +28,30 @@ const InfoRow = ({ label, value, copyable }) => (
 const DetailsPanel = ({ file, onClose, onUpdate, aiConfig, onOpenSettings }) => {
   if (!file) return null;
   
-  // --- AI 相关状态与逻辑 ---
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [aiStatusMsg, setAiStatusMsg] = useState("");
-  
-  // 获取已保存的 AI 标签
   const aiLabels = file.aiData?.labels || [];
 
-  // 当切换文件时，重置 AI 状态
   useEffect(() => {
     setIsAnalyzing(false);
     setAiStatusMsg("");
   }, [file.id]);
 
   const handleAiAnalyze = () => {
-    // 检查配置
     if (!aiConfig) {
       if (confirm("AI 功能尚未配置，是否现在去配置？")) {
         onOpenSettings && onOpenSettings();
       }
       return;
     }
-
     setIsAnalyzing(true);
     setAiStatusMsg("准备中...");
-
-    // 调用 AI 服务 (传递 aiConfig)
     aiInstance.analyzeImage(file.id, file.thumbnail, aiConfig, ({ status, result, message }) => {
       if (status === 'loading' || status === 'processing') {
         setAiStatusMsg(message);
       } else if (status === 'complete') {
         setIsAnalyzing(false);
         setAiStatusMsg("");
-        
-        // 调用父组件回调更新文件数据
         if (onUpdate) {
           onUpdate({ 
             aiData: { 
@@ -76,7 +67,6 @@ const DetailsPanel = ({ file, onClose, onUpdate, aiConfig, onOpenSettings }) => 
       }
     });
   };
-  // ---------------------------
 
   const tags = file.iptc?.Keywords?.join('; ');
   const remark = file.exif?.ImageDescription; 
@@ -91,6 +81,7 @@ const DetailsPanel = ({ file, onClose, onUpdate, aiConfig, onOpenSettings }) => 
     setEditTagsValue((file.iptc?.Keywords || []).join('; '));
     setEditRemarkValue(file.exif?.ImageDescription || '');
   }, [file.id]);
+  
   const camera = [file.exif?.Make, file.exif?.Model].filter(Boolean).join(' ');
 
   return (
@@ -101,24 +92,20 @@ const DetailsPanel = ({ file, onClose, onUpdate, aiConfig, onOpenSettings }) => 
       </div>
       <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
         
-        {/* 缩略图区域 */}
         <div className="mb-6 rounded-lg border border-slate-200 bg-slate-50 p-2 flex items-center justify-center min-h-[160px]">
            {file.thumbnail ? <img src={file.thumbnail} alt="preview" className="max-w-full max-h-48 object-contain shadow-sm rounded" /> : <span className="text-slate-400 text-xs">无预览</span>}
         </div>
 
-        {/* --- AI 智能识别区域 --- */}
         <div className="mb-6 border border-blue-100 bg-blue-50/30 rounded-lg p-3">
           <div className="flex items-center justify-between mb-2">
             <h4 className="text-xs font-bold text-blue-700 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5" /> AI 场景识别
             </h4>
-            {/* 如果没有配置，显示设置图标 */}
             {!aiConfig && !isAnalyzing && (
               <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-blue-400" onClick={onOpenSettings} title="配置 AI">
                 <Settings className="w-3.5 h-3.5" />
               </Button>
             )}
-            {/* 如果已配置且没有标签且没在分析，显示开始按钮 */}
             {aiConfig && !aiLabels.length && !isAnalyzing && (
               <Button size="sm" variant="ghost" className="h-6 text-[10px] bg-white border border-blue-200 hover:bg-blue-50 text-blue-600" onClick={handleAiAnalyze}>
                 开始识别
@@ -152,7 +139,6 @@ const DetailsPanel = ({ file, onClose, onUpdate, aiConfig, onOpenSettings }) => 
             </div>
           )}
         </div>
-        {/* ------------------------------------- */}
 
         <div className="space-y-6">
           <div>
@@ -161,7 +147,9 @@ const DetailsPanel = ({ file, onClose, onUpdate, aiConfig, onOpenSettings }) => 
             <InfoRow label="目录" value={file.parent} copyable />
             <InfoRow label="大小" value={humanSize(file.size)} />
             <InfoRow label="尺寸" value={file.dims ? `${file.dims.w} x ${file.dims.h}` : '-'} />
-            <InfoRow label="修改时间" value={new Date(file.lastModified).toLocaleString()} />
+            {/* [新增] 显示创建时间 */}
+            <InfoRow label="创建时间" value={formatDateTime(file.birthtime)} />
+            <InfoRow label="修改时间" value={formatDateTime(file.lastModified)} />
           </div>
           <div>
             <h4 className="text-xs font-bold text-slate-900 border-b border-slate-200 pb-1 mb-2">内容与描述</h4>
@@ -238,14 +226,13 @@ const DetailsPanel = ({ file, onClose, onUpdate, aiConfig, onOpenSettings }) => 
               </div>
             </div>
           </div>
-          {(camera || file.exif?.FNumber) && (
-            <div>
-              <h4 className="text-xs font-bold text-slate-900 border-b border-slate-200 pb-1 mb-2">拍摄参数</h4>
-              <InfoRow label="相机" value={camera} />
-              <InfoRow label="光圈" value={file.exif?.FNumber ? `f/${file.exif.FNumber}` : ''} />
-              <InfoRow label="拍摄时间" value={formatDate(file.dateOriginal)} />
-            </div>
-          )}
+          <div>
+            <h4 className="text-xs font-bold text-slate-900 border-b border-slate-200 pb-1 mb-2">拍摄参数</h4>
+            {/* [新增] 显示拍摄时间 */}
+            <InfoRow label="拍摄时间" value={formatDateTime(file.dateOriginal)} />
+            <InfoRow label="相机" value={camera} />
+            <InfoRow label="光圈" value={file.exif?.FNumber ? `f/${file.exif.FNumber}` : ''} />
+          </div>
         </div>
       </div>
     </div>

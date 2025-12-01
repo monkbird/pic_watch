@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Folder, Clock, Calendar, Tag, FileImage, Grid, ChevronDown, Hash } from 'lucide-react';
+import { Folder, Clock, Calendar, Tag, FileImage, Grid, Hash } from 'lucide-react';
 
 const TreeItem = ({ label, count, level = 0, active, onClick, icon: Icon, tooltip }) => {
   return (
@@ -44,20 +44,40 @@ const Sidebar = ({ groups, selectedGroup, onSelectGroup, groupMode, setGroupMode
     return { nameMap, countMap };
   }, [sortedKeys, groupMode]);
 
+  // 定义分组模式与图标的映射
+  const modes = [
+    { id: 'folder', icon: Folder, label: '按文件夹' },
+    { id: 'time', icon: Clock, label: '按日期' },
+    { id: 'year', icon: Calendar, label: '按年份' },
+    { id: 'remark', icon: Tag, label: '按备注' },
+    { id: 'tags', icon: Hash, label: '按标记' },
+    { id: 'type', icon: FileImage, label: '按类型' },
+  ];
+
   return (
     <div className="w-64 flex flex-col border-r border-slate-200 bg-slate-50/50 h-full shrink-0">
       <div className="p-3 border-b border-slate-200 bg-white">
         <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">分组模式</div>
-        <div className="relative">
-          <select value={groupMode} onChange={e => setGroupMode(e.target.value)} className="w-full appearance-none bg-white border border-slate-200 text-slate-700 text-sm rounded-md h-9 pl-3 pr-8 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
-            <option value="folder">按文件夹</option>
-            <option value="time">按日期</option>
-            <option value="year">按年份</option>
-            <option value="remark">按备注 (分段)</option>
-            <option value="tags">按标记 (Keywords)</option>
-            <option value="type">按类型</option>
-          </select>
-          <ChevronDown className="absolute right-2.5 top-2.5 h-4 w-4 text-slate-400 pointer-events-none" />
+        {/* 改为横向图标按钮组 */}
+        <div className="flex bg-slate-100 p-1 rounded-lg">
+          {modes.map(mode => {
+            const Icon = mode.icon;
+            const isActive = groupMode === mode.id;
+            return (
+              <button
+                key={mode.id}
+                onClick={() => setGroupMode(mode.id)}
+                className={`flex-1 flex items-center justify-center py-1.5 rounded-md transition-all ${
+                  isActive 
+                    ? 'bg-white text-blue-600 shadow-sm ring-1 ring-black/5' 
+                    : 'text-slate-400 hover:text-slate-600 hover:bg-slate-200/50'
+                }`}
+                title={mode.label}
+              >
+                <Icon className="w-4 h-4" />
+              </button>
+            );
+          })}
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">

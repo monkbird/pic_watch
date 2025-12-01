@@ -1,3 +1,4 @@
+// src/utils/metadata.js
 import exifr from 'exifr';
 
 export const ALLOWED_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'heic']);
@@ -10,6 +11,7 @@ export const humanSize = (bytes) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
+// 格式化日期：YYYY-MM-DD
 export const formatDate = (timestamp) => {
   if (!timestamp) return '未知日期';
   const d = new Date(timestamp);
@@ -17,7 +19,35 @@ export const formatDate = (timestamp) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-// 解码辅助函数 (保持不变)
+// 格式化完整时间：YYYY-MM-DD HH:mm:ss
+export const formatDateTime = (timestamp) => {
+  if (!timestamp) return '-';
+  const d = new Date(timestamp);
+  if (isNaN(d.getTime())) return '-';
+  return d.toLocaleString('zh-CN', { hour12: false });
+};
+
+// [新增] 从文件名提取日期 (支持 20230101, 2023-01-01, 2023_01_01 等格式)
+const parseDateFromFilename = (filename) => {
+  try {
+    // 匹配 20xx 开头的 8 位数字，或者带分隔符的日期
+    const match = filename.match(/(20\d{2})[-_]?(\d{2})[-_]?(\d{2})/);
+    if (match) {
+      const year = parseInt(match[1], 10);
+      const month = parseInt(match[2], 10) - 1;
+      const day = parseInt(match[3], 10);
+      const d = new Date(year, month, day);
+      if (!isNaN(d.getTime()) && month >= 0 && month <= 11 && day >= 1 && day <= 31) {
+        return d;
+      }
+    }
+  } catch (e) {
+    return null;
+  }
+  return null;
+};
+
+// 解码辅助函数
 const decodeWindowsXPString = (data) => {
   if (!data) return "";
   if (typeof data === 'string') return data.replace(/\0/g, '').trim();
@@ -48,42 +78,36 @@ const decodeCSstring = (str) => {
   } catch (e) { return str; }
 };
 
-// --- 主提取函数 (兼容 Web 和 Electron) ---
+// --- 主提取函数 ---
 
 export const extractMetadata = async (fileOrPathObj) => {
-  // 判断是 Web File 对象还是 Electron 文件对象
   const isElectron = window.electron?.isElectron;
   
-  // 标准化基础属性
   let fileInput; 
-  let name, pathStr, size, lastModified, parent;
+  let name, pathStr, size, lastModified, parent, birthtime;
   let thumbnailSrc;
 
   if (isElectron) {
-    // Electron 模式: fileOrPathObj 是 main.js 返回的 { name, path, size, lastModified, parent }
     name = fileOrPathObj.name;
-    pathStr = fileOrPathObj.path; // 绝对路径
+    pathStr = fileOrPathObj.path;
     size = fileOrPathObj.size;
     lastModified = fileOrPathObj.lastModified;
+    birthtime = fileOrPathObj.birthtime; // [新增]
     parent = fileOrPathObj.parent;
-    
-    // 1. 获取缩略图 URL (直接使用 file:// 协议)
     thumbnailSrc = `file://${pathStr}`;
     
-    // 2. [优化] 读取 Buffer 用于 exifr 解析
-    // 只读取前 256KB，通常足够解析 EXIF/IPTC，极大提升大文件导入速度
     try {
-      const CHUNK_SIZE = 256 * 1024; // 256KB
+      const CHUNK_SIZE = 256 * 1024; 
       fileInput = await window.electron.readPartialFile(pathStr, CHUNK_SIZE);
     } catch (e) {
       console.error("Electron read partial file error:", e);
     }
   } else {
-    // Web 模式: fileOrPathObj 是 File 对象
     name = fileOrPathObj.name;
     pathStr = fileOrPathObj.webkitRelativePath || fileOrPathObj.name;
     size = fileOrPathObj.size;
     lastModified = fileOrPathObj.lastModified;
+    birthtime = fileOrPathObj.lastModified; // Web 环境没有 birthtime，暂用 lastModified 代替
     parent = (fileOrPathObj.webkitRelativePath || '').split('/').slice(0, -1).join('/') || '根目录';
     thumbnailSrc = URL.createObjectURL(fileOrPathObj);
     fileInput = fileOrPathObj;
@@ -92,12 +116,14 @@ export const extractMetadata = async (fileOrPathObj) => {
   const result = {
     id: `file-${name}-${lastModified}-${Math.random()}`,
     name,
-    path: pathStr, // 在 Electron 中这是绝对路径
+    path: pathStr,
     parent,
     size,
-    type: 'image', // 简化
+    type: 'image',
     lastModified,
-    dateOriginal: new Date(lastModified),
+    birthtime, // [新增]
+    dateOriginal: null, // 初始化为空，稍后解析
+    bestDate: null,     // [新增] 用于分组的最早时间
     extension: name.split('.').pop().toLowerCase(),
     thumbnail: thumbnailSrc,
     dims: { w: 0, h: 0 },
@@ -105,85 +131,76 @@ export const extractMetadata = async (fileOrPathObj) => {
     iptc: {}
   };
 
-  if (!fileInput) return result;
-
   try {
-    const output = await exifr.parse(fileInput, {
-      tiff: true,
-      ifd0: true,    
-      exif: true,
-      iptc: true,
-      xmp: true,
-      jfif: true,
-      mergeOutput: false, 
-      reviveValues: false 
-    });
+    if (fileInput) {
+        const output = await exifr.parse(fileInput, {
+        tiff: true, ifd0: true, exif: true, iptc: true, xmp: true, jfif: true,
+        mergeOutput: false, reviveValues: false 
+        });
 
-    if (output) {
-      const ifd0 = output.ifd0 || {};
-      const exif = output.exif || {};
-      const iptc = output.iptc || {};
+        if (output) {
+            const ifd0 = output.ifd0 || {};
+            const exif = output.exif || {};
+            const iptc = output.iptc || {};
 
-      // 日期
-      let dt = exif.DateTimeOriginal || ifd0.DateTimeOriginal || exif.DateTime || ifd0.DateTime;
-      if (dt) {
-        if (typeof dt === 'string') {
-          const parts = dt.split(' ');
-          const datePart = parts[0].replace(/:/g, '-');
-          const timePart = parts[1] || '00:00:00';
-          const parsed = new Date(`${datePart}T${timePart}`);
-          if (!isNaN(parsed.getTime())) result.dateOriginal = parsed;
-        } else if (dt instanceof Date) {
-          result.dateOriginal = dt;
+            // 1. 解析拍摄时间 (EXIF)
+            let dt = exif.DateTimeOriginal || ifd0.DateTimeOriginal || exif.DateTime || ifd0.DateTime;
+            if (dt) {
+                if (typeof dt === 'string') {
+                const parts = dt.split(' ');
+                const datePart = parts[0].replace(/:/g, '-');
+                const timePart = parts[1] || '00:00:00';
+                const parsed = new Date(`${datePart}T${timePart}`);
+                if (!isNaN(parsed.getTime())) result.dateOriginal = parsed;
+                } else if (dt instanceof Date) {
+                result.dateOriginal = dt;
+                }
+            }
+
+            // 解析备注 (保持原有逻辑)
+            let remark = "";
+            if (ifd0.XPComment) remark = decodeWindowsXPString(ifd0.XPComment);
+            if (!remark && (iptc.Caption || iptc['Caption/Abstract'])) remark = decodeCSstring(iptc.Caption || iptc['Caption/Abstract']);
+            const imgDesc = ifd0.ImageDescription || exif.ImageDescription;
+            if (!remark && imgDesc) remark = decodeCSstring(imgDesc);
+            if (!remark && exif.UserComment && exif.UserComment instanceof Uint8Array) {
+                try {
+                    const u8 = new Uint8Array(exif.UserComment);
+                    const offset = (u8.length > 8 && u8[5] === 0) ? 8 : 0; 
+                    remark = new TextDecoder('utf-8').decode(u8.slice(offset)).replace(/\0/g, '');
+                } catch(e) {}
+            }
+            result.exif.ImageDescription = remark; 
+            result.iptc.Caption = remark;
+
+            // 解析标记
+            let tags = [];
+            if (ifd0.XPKeywords) {
+                const xpTags = decodeWindowsXPString(ifd0.XPKeywords);
+                if (xpTags) tags.push(...xpTags.split(/[;；]/).map(s => s.trim()).filter(Boolean));
+            }
+            if (iptc.Keywords) {
+                if (Array.isArray(iptc.Keywords)) tags.push(...iptc.Keywords);
+                else tags.push(iptc.Keywords);
+            }
+            result.iptc.Keywords = [...new Set(tags)];
+            result.exif.XPKeywords = tags.join('; ');
+            
+            // 解析尺寸
+            const metaW = exif.ExifImageWidth || ifd0.ImageWidth || exif.PixelXDimension;
+            const metaH = exif.ExifImageHeight || ifd0.ImageHeight || exif.PixelYDimension;
+            if (metaW && metaH) {
+                result.dims = { w: metaW, h: metaH };
+            }
+            
+            // 基础信息
+            result.exif.Make = ifd0.Make || exif.Make;
+            result.exif.Model = ifd0.Model || exif.Model;
+            result.exif.FNumber = exif.FNumber;
         }
-      }
-
-      // 备注
-      let remark = "";
-      if (ifd0.XPComment) remark = decodeWindowsXPString(ifd0.XPComment);
-      if (!remark && (iptc.Caption || iptc['Caption/Abstract'])) remark = decodeCSstring(iptc.Caption || iptc['Caption/Abstract']);
-      const imgDesc = ifd0.ImageDescription || exif.ImageDescription;
-      if (!remark && imgDesc) remark = decodeCSstring(imgDesc);
-      if (!remark && exif.UserComment && exif.UserComment instanceof Uint8Array) {
-         try {
-           const u8 = new Uint8Array(exif.UserComment);
-           const offset = (u8.length > 8 && u8[5] === 0) ? 8 : 0; 
-           remark = new TextDecoder('utf-8').decode(u8.slice(offset)).replace(/\0/g, '');
-         } catch(e) {}
-      }
-      result.exif.ImageDescription = remark; 
-      result.iptc.Caption = remark;
-
-      // 标记
-      let tags = [];
-      if (ifd0.XPKeywords) {
-        const xpTags = decodeWindowsXPString(ifd0.XPKeywords);
-        if (xpTags) tags.push(...xpTags.split(/[;；]/).map(s => s.trim()).filter(Boolean));
-      }
-      if (iptc.Keywords) {
-        if (Array.isArray(iptc.Keywords)) tags.push(...iptc.Keywords);
-        else tags.push(iptc.Keywords);
-      }
-      result.iptc.Keywords = [...new Set(tags)];
-      result.exif.XPKeywords = tags.join('; ');
-      
-      // 基础信息
-      result.exif.Make = ifd0.Make || exif.Make;
-      result.exif.Model = ifd0.Model || exif.Model;
-      result.exif.FNumber = exif.FNumber;
-      result.exif.ExposureTime = exif.ExposureTime;
-      result.exif.ISOSpeedRatings = exif.ISOSpeedRatings;
-
-      // [优化] 尝试从 Metadata 直接获取尺寸
-      // 这比 new Image() 加载解码快得多
-      const metaW = exif.ExifImageWidth || ifd0.ImageWidth || exif.PixelXDimension;
-      const metaH = exif.ExifImageHeight || ifd0.ImageHeight || exif.PixelYDimension;
-      if (metaW && metaH) {
-        result.dims = { w: metaW, h: metaH };
-      }
     }
 
-    // 如果 Metadata 中没有尺寸，才回退到加载图片获取 (较慢)
+    // 尺寸回退
     if (result.dims.w === 0) {
       result.dims = await new Promise((resolve) => {
         const img = new Image();
@@ -195,15 +212,37 @@ export const extractMetadata = async (fileOrPathObj) => {
 
   } catch (error) {
     console.error("Metadata error:", error);
-    // 即使出错，至少尝试获取尺寸
-    if (result.dims.w === 0) {
-        result.dims = await new Promise((resolve) => {
-            const img = new Image();
-            img.onload = () => resolve({ w: img.width, h: img.height });
-            img.onerror = () => resolve({ w: 0, h: 0 });
-            img.src = thumbnailSrc;
-        });
-    }
+  }
+
+  // --- [核心修改] 计算最早时间 (Best Date) ---
+  // 逻辑：按 读取的文件名、修改时间、拍摄时间、创建时间 4个中的最早时间
+  const candidates = [];
+
+  // 1. 文件名解析日期
+  const filenameDate = parseDateFromFilename(name);
+  if (filenameDate) candidates.push(filenameDate.getTime());
+
+  // 2. 修改时间
+  if (lastModified) candidates.push(lastModified);
+
+  // 3. 拍摄时间 (EXIF)
+  if (result.dateOriginal && !isNaN(result.dateOriginal.getTime())) {
+    candidates.push(result.dateOriginal.getTime());
+  }
+
+  // 4. 创建时间
+  if (birthtime) candidates.push(birthtime);
+
+  if (candidates.length > 0) {
+    result.bestDate = new Date(Math.min(...candidates));
+  } else {
+    result.bestDate = new Date(lastModified || Date.now());
+  }
+
+  // 如果没有 EXIF 拍摄时间，dateOriginal 也可以回退到 bestDate (可选，视业务需求而定)
+  // 但为了保留原始语义，这里让 dateOriginal 保持为 EXIF 时间（可能为 null）
+  if (!result.dateOriginal) {
+      result.dateOriginal = result.bestDate;
   }
 
   return result;

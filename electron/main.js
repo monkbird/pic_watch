@@ -144,7 +144,8 @@ async function scanDirectoryFiles(rootPath) {
               path: fullPath,
               parent: groupKey,
               size: stats.size,
-              lastModified: stats.mtimeMs
+              lastModified: stats.mtimeMs,
+              birthtime: stats.birthtimeMs // [新增] 获取创建时间
             });
           }
         }
