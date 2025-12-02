@@ -43,6 +43,30 @@ export default function App() {
   const fileInputRef = useRef(null);
   const contextMenuTimerRef = useRef(null);
 
+  // Point 6: 启动时加载上次导入的路径
+  useEffect(() => {
+    const savedPaths = localStorage.getItem('picwatch_imported_paths');
+    if (savedPaths) {
+      try {
+        const paths = JSON.parse(savedPaths);
+        if (Array.isArray(paths) && paths.length > 0) {
+          setImportedPaths(new Set(paths));
+          // 自动触发一次重新扫描
+          if (window.electron?.scanDirectory) {
+            handleRefresh(new Set(paths));
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load imported paths", e);
+      }
+    }
+  }, []);
+
+  // 监听 importedPaths 变化并保存
+  useEffect(() => {
+    localStorage.setItem('picwatch_imported_paths', JSON.stringify(Array.from(importedPaths)));
+  }, [importedPaths]);
+
   useEffect(() => {
     const saved = localStorage.getItem('picwatch_ai_config');
     if (saved) {
@@ -101,7 +125,10 @@ export default function App() {
         const path = f.path || (f.webkitRelativePath || f.name);
         
         if (updateMode && existingFileMap.has(path)) {
-          return existingFileMap.get(path);
+          // 如果是更新模式，保留旧的 AI 数据
+          const oldFile = existingFileMap.get(path);
+          const metadata = await extractMetadata(f);
+          return { ...metadata, aiData: oldFile.aiData, aiStatus: oldFile.aiStatus, fileObj: (f instanceof File ? f : null) };
         }
         
         const metadata = await extractMetadata(f);
@@ -216,14 +243,15 @@ export default function App() {
     }
   };
 
-  const handleRefresh = async () => {
-    if (importedPaths.size === 0) return;
+  const handleRefresh = async (pathsToScan = null) => {
+    const targets = pathsToScan || importedPaths;
+    if (targets.size === 0) return;
     if (!window.electron?.scanDirectory) return;
 
     setIsScanning(true);
     try {
       let allFiles = [];
-      for (const path of importedPaths) {
+      for (const path of targets) {
         const files = await window.electron.scanDirectory(path);
         allFiles.push(...files);
       }
@@ -269,6 +297,23 @@ export default function App() {
       Object.keys(updates).forEach(k => { if (k !== 'iptc' && k !== 'exif') updated[k] = updates[k]; });
       return updated;
     }));
+  };
+
+  // Point 2: 处理元数据保存（调用 Electron）
+  const handleSaveMetadata = async (file, newData) => {
+    // 1. 更新本地 State (UI 立即反馈)
+    updateFileMetadata(file.id, newData);
+
+    // 2. 调用 Electron 写入文件
+    if (window.electron?.writeMetadata) {
+      const success = await window.electron.writeMetadata(file.path, newData);
+      if (!success) {
+        console.warn("Write metadata to file failed (check backend logs).");
+        // 可选：回滚 UI 或提示用户
+      } else {
+        console.log("Metadata written to file successfully.");
+      }
+    }
   };
 
   const groups = useMemo(() => {
@@ -423,16 +468,13 @@ export default function App() {
     const paths = targets.map(f => f.path);
 
     if (window.electron?.copyFiles) {
-      // Electron 环境：调用原生文件复制（CF_HDROP）
       const success = await window.electron.copyFiles(paths);
       if (success) {
-        // 成功后可以稍微提示一下，或者静默
         console.log(`已复制 ${paths.length} 个文件`);
       } else {
         alert("复制文件失败");
       }
     } else {
-      // Web 环境：降级为路径文本
       await navigator.clipboard.writeText(paths.join('\n'));
       alert(`已复制 ${paths.length} 个路径 (Web模式不支持文件实体复制)`);
     }
@@ -440,7 +482,6 @@ export default function App() {
     setContextMenu(null);
   }, [selectedFiles, filteredFiles, contextMenu, activeFile]);
 
-  // [核心修改] 实现真正的文件删除
   const handleDeleteFiles = async (filesToDeleteSet) => {
     if (!filesToDeleteSet || filesToDeleteSet.size === 0) return;
     
@@ -480,7 +521,6 @@ export default function App() {
       }
 
       if (deletedCount > 0) {
-        // 只有真正删除了才更新 UI
         setFiles(prev => prev.filter(f => !filesToDeleteSet.has(f.id)));
         const newSelected = new Set(selectedFiles);
         filesToDeleteSet.forEach(id => newSelected.delete(id));
@@ -554,6 +594,7 @@ export default function App() {
     if (confirm("确定要清空列表吗？\n(注意：这只会清空软件中的显示记录，不会删除您电脑上的文件)")) {
       setFiles([]);
       setImportedPaths(new Set());
+      localStorage.removeItem('picwatch_imported_paths'); // Clear storage
       setSelectedFiles(new Set());
       setSelectedGroup(null);
       setAiQueue([]); 
@@ -622,7 +663,7 @@ export default function App() {
              <Download className="w-4 h-4" />
            </Button>
            
-           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleRefresh} disabled={importedPaths.size === 0 || isScanning} title="重新扫描已导入的文件夹">
+           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleRefresh()} disabled={importedPaths.size === 0 || isScanning} title="重新扫描已导入的文件夹">
              <RotateCw className={`w-4 h-4 ${isScanning ? 'animate-spin' : ''}`} />
            </Button>
            
@@ -687,7 +728,7 @@ export default function App() {
                 <DetailsPanel 
                   file={activeFile} 
                   onClose={() => setShowDetails(false)} 
-                  onUpdate={(updates) => updateFileMetadata(activeFile.id, updates)} 
+                  onUpdate={(updates) => handleSaveMetadata(activeFile, updates)} // Point 2: 传递 handleSaveMetadata
                   aiConfig={aiConfig}
                   onOpenSettings={() => setIsSettingsOpen(true)}
                 />
@@ -709,6 +750,9 @@ export default function App() {
         onPrev={handlePrev}
         hasNext={hasNext}
         hasPrev={hasPrev}
+        onUpdateMetadata={(id, updates) => handleSaveMetadata(files.find(f => f.id === id), updates)} // Point 2: Allow editing in split view
+        aiConfig={aiConfig}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
       
       {contextMenu && (

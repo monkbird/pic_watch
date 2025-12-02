@@ -1,8 +1,7 @@
-// src/components/DetailsPanel.jsx
 import React, { useState, useEffect } from 'react';
 import { Info, X, Copy, Sparkles, Loader2, Pencil, Check, Settings } from 'lucide-react';
 import { Button } from './ui/Primitives';
-import { humanSize, formatDateTime } from '../utils/metadata'; // 引入 formatDateTime
+import { humanSize, formatDateTime } from '../utils/metadata';
 import { aiInstance } from '../utils/aiService';
 
 const InfoRow = ({ label, value, copyable }) => (
@@ -25,7 +24,7 @@ const InfoRow = ({ label, value, copyable }) => (
   </div>
 );
 
-const DetailsPanel = ({ file, onClose, onUpdate, aiConfig, onOpenSettings }) => {
+const DetailsPanel = ({ file, onClose, onUpdate, aiConfig, onOpenSettings, embedded = false }) => {
   if (!file) return null;
   
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -85,16 +84,20 @@ const DetailsPanel = ({ file, onClose, onUpdate, aiConfig, onOpenSettings }) => 
   const camera = [file.exif?.Make, file.exif?.Model].filter(Boolean).join(' ');
 
   return (
-    <div className="h-full flex flex-col bg-white">
-      <div className="h-12 border-b border-slate-200 flex items-center justify-between px-4 bg-slate-50/50 shrink-0">
-        <span className="font-semibold text-sm text-slate-700 flex items-center gap-2"><Info className="w-4 h-4" /> 属性详情</span>
-        <Button variant="ghost" size="icon" onClick={onClose}><X className="w-4 h-4" /></Button>
-      </div>
+    <div className={`h-full flex flex-col bg-white ${embedded ? '' : 'border-l border-slate-200'}`}>
+      {!embedded && (
+        <div className="h-12 border-b border-slate-200 flex items-center justify-between px-4 bg-slate-50/50 shrink-0">
+          <span className="font-semibold text-sm text-slate-700 flex items-center gap-2"><Info className="w-4 h-4" /> 属性详情</span>
+          <Button variant="ghost" size="icon" onClick={onClose}><X className="w-4 h-4" /></Button>
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
         
-        <div className="mb-6 rounded-lg border border-slate-200 bg-slate-50 p-2 flex items-center justify-center min-h-[160px]">
-           {file.thumbnail ? <img src={file.thumbnail} alt="preview" className="max-w-full max-h-48 object-contain shadow-sm rounded" /> : <span className="text-slate-400 text-xs">无预览</span>}
-        </div>
+        {!embedded && (
+          <div className="mb-6 rounded-lg border border-slate-200 bg-slate-50 p-2 flex items-center justify-center min-h-[160px]">
+             {file.thumbnail ? <img src={file.thumbnail} alt="preview" className="max-w-full max-h-48 object-contain shadow-sm rounded" /> : <span className="text-slate-400 text-xs">无预览</span>}
+          </div>
+        )}
 
         <div className="mb-6 border border-blue-100 bg-blue-50/30 rounded-lg p-3">
           <div className="flex items-center justify-between mb-2">
@@ -144,10 +147,11 @@ const DetailsPanel = ({ file, onClose, onUpdate, aiConfig, onOpenSettings }) => 
           <div>
             <h4 className="text-xs font-bold text-slate-900 border-b border-slate-200 pb-1 mb-2">基本信息</h4>
             <InfoRow label="文件名" value={file.name} copyable />
-            <InfoRow label="目录" value={file.parent} copyable />
+            {/* Point 10: 显示真实路径 */}
+            <InfoRow label="完整路径" value={file.path} copyable />
+            <InfoRow label="分组目录" value={file.parent} copyable />
             <InfoRow label="大小" value={humanSize(file.size)} />
             <InfoRow label="尺寸" value={file.dims ? `${file.dims.w} x ${file.dims.h}` : '-'} />
-            {/* [新增] 显示创建时间 */}
             <InfoRow label="创建时间" value={formatDateTime(file.birthtime)} />
             <InfoRow label="修改时间" value={formatDateTime(file.lastModified)} />
           </div>
@@ -162,6 +166,7 @@ const DetailsPanel = ({ file, onClose, onUpdate, aiConfig, onOpenSettings }) => 
                     <div className="flex items-center gap-1 ml-2">
                       <button className="p-1 hover:bg-transparent rounded text-slate-600" title="保存" onClick={() => {
                         const arr = editTagsValue.split(/[;，,\s|]+/).map(s => s.trim()).filter(Boolean);
+                        // Point 2: Trigger onUpdate (which calls handleSaveMetadata in App)
                         onUpdate && onUpdate({ iptc: { Keywords: arr }, exif: { XPKeywords: arr.join('; ') } });
                         setEditingTags(false);
                       }}>
@@ -198,6 +203,7 @@ const DetailsPanel = ({ file, onClose, onUpdate, aiConfig, onOpenSettings }) => 
                     <textarea className="flex-1 text-xs text-slate-700 bg-white border border-slate-200 rounded px-2 py-1 min-h-[60px]" value={editRemarkValue} onChange={e => setEditRemarkValue(e.target.value)} />
                     <div className="flex items-center gap-1 ml-2">
                       <button className="p-1 hover:bg-transparent rounded text-slate-600" title="保存" onClick={() => {
+                        // Point 2: Trigger onUpdate
                         onUpdate && onUpdate({ exif: { ImageDescription: editRemarkValue }, iptc: { Caption: editRemarkValue } });
                         setEditingRemark(false);
                       }}>
@@ -228,7 +234,6 @@ const DetailsPanel = ({ file, onClose, onUpdate, aiConfig, onOpenSettings }) => 
           </div>
           <div>
             <h4 className="text-xs font-bold text-slate-900 border-b border-slate-200 pb-1 mb-2">拍摄参数</h4>
-            {/* [新增] 显示拍摄时间 */}
             <InfoRow label="拍摄时间" value={formatDateTime(file.dateOriginal)} />
             <InfoRow label="相机" value={camera} />
             <InfoRow label="光圈" value={file.exif?.FNumber ? `f/${file.exif.FNumber}` : ''} />

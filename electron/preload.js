@@ -17,6 +17,9 @@ contextBridge.exposeInMainWorld('electron', {
   trashFile: (path) => ipcRenderer.invoke('fs:trashFile', path),
   deleteFilePermanent: (path) => ipcRenderer.invoke('fs:deleteFilePermanent', path),
   
+  // [新增] 写入元数据
+  writeMetadata: (path, data) => ipcRenderer.invoke('fs:writeMetadata', path, data),
+
   // 在资源管理器中显示
   showItemInFolder: (path) => ipcRenderer.invoke('shell:showItemInFolder', path),
 

@@ -17,17 +17,15 @@ const PhotoGrid = ({ files, selectedFiles, onSelect, onDoubleClick, onContextMen
 
   return (
     <div 
-      className="flex-1 overflow-y-auto bg-slate-50/30 p-4 custom-scrollbar"
+      // 修改：p-2 -> p-0.5
+      className="flex-1 overflow-y-auto bg-slate-50/30 p-0.5 custom-scrollbar"
       onClick={() => onSelect(null, false, false)}
     >
-      {/* 核心修改：使用 repeat(auto-fill, minmax(...)) 实现自适应布局
-        - minmax(200px, 1fr): 卡片最小宽度 200px，如果有剩余空间则平分 (1fr)
-        - auto-fill: 根据容器宽度自动填充尽可能多的列
-        这样当右侧详情页展开导致容器变窄时，会自动减少列数，而不会挤压卡片
-      */}
-      <div className="pb-10" style={{ columnWidth: '220px', columnGap: '12px' }}>
+      {/* 修改：columnGap: 6px -> 3px */}
+      <div className="pb-10" style={{ columnWidth: '200px', columnGap: '3px' }}>
         {files.map(file => (
-          <div key={file.id} style={{ breakInside: 'avoid' }} className="mb-3">
+          // 修改：mb-1.5 -> mb-0 (垂直方向)
+          <div key={file.id} style={{ breakInside: 'avoid' }} className="mb-0">
             <PhotoCard 
               file={file} 
               selected={selectedFiles.has(file.id)}

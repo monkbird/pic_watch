@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, shell, clipboard } from 'electron'
 import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
- 
+import piexif from 'piexifjs';
 
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -203,6 +203,69 @@ ipcMain.handle('fs:readFile', async (event, filePath) => {
   } catch (e) {
     console.error("Read file error:", e);
     return null;
+  }
+});
+
+// [核心修复] 真实的元数据写入 Handler
+ipcMain.handle('fs:writeMetadata', async (event, filePath, metadata) => {
+  try {
+    const ext = path.extname(filePath).toLowerCase();
+    // piexifjs 主要支持 JPEG 格式。PNG/WebP 支持有限，HEIC 暂不支持直接写入。
+    if (ext !== '.jpg' && ext !== '.jpeg') {
+      console.warn("目前仅支持写入 JPG/JPEG 格式的元数据");
+      return false; // 或者返回特定错误码提示前端
+    }
+
+    // 1. 读取原文件为二进制字符串 (piexifjs 需要 binary string)
+    const fileBuffer = await fs.readFile(filePath);
+    const dataBinary = fileBuffer.toString('binary');
+
+    // 2. 加载现有 Exif (如果文件没有 Exif，创建一个空的结构)
+    let exifObj;
+    try {
+        exifObj = piexif.load(dataBinary);
+    } catch (e) {
+        // 如果加载失败（无 Exif），初始化为空对象
+        exifObj = { "0th": {}, "Exif": {}, "GPS": {}, "1st": {}, "thumbnail": null };
+    }
+
+    // 3. 更新备注 (Remarks)
+    // 同时写入 ImageDescription (0x010e) 和 Windows XPComment (0x9c9c)
+    if (metadata.exif && metadata.exif.ImageDescription !== undefined) {
+        const desc = metadata.exif.ImageDescription || "";
+        
+        // 标准 ASCII 写入
+        exifObj["0th"][piexif.ImageIFD.ImageDescription] = desc;
+        
+        // Windows 特有：XPComment (UCS-2 编码)
+        // 这样在 Windows 属性-详细信息-备注 中才能看到中文
+        const xpCommentBuffer = Buffer.from(desc + '\0', 'ucs2');
+        exifObj["0th"][37532] = [...xpCommentBuffer]; // 0x9c9c
+    }
+
+    // 4. 更新标记 (Tags)
+    // 写入 Windows XPKeywords (0x9c9e)
+    if (metadata.exif && metadata.exif.XPKeywords !== undefined) {
+        const tags = metadata.exif.XPKeywords || "";
+        const xpKeywordsBuffer = Buffer.from(tags + '\0', 'ucs2');
+        exifObj["0th"][40094] = [...xpKeywordsBuffer]; // 0x9c9e
+    }
+
+    // 5. 重新生成二进制数据
+    const exifBytes = piexif.dump(exifObj);
+    
+    // 6. 插入回原图片
+    const newBinary = piexif.insert(exifBytes, dataBinary);
+    const newBuffer = Buffer.from(newBinary, 'binary');
+
+    // 7. 写入硬盘
+    await fs.writeFile(filePath, newBuffer);
+    
+    console.log(`Metadata written to ${filePath} successfully.`);
+    return true;
+  } catch (e) {
+    console.error("Write metadata error:", e);
+    return false;
   }
 });
 
