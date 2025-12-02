@@ -31,8 +31,6 @@ jobs:
       fail-fast: false
       matrix:
         arch: [x64, arm64]
-    # Filter matrix by requested arch when manually triggered or via repository_dispatch
-    if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'repository_dispatch' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.arch == '' || github.event.inputs.arch == matrix.arch)) || (github.event_name == 'repository_dispatch' && (github.event.client_payload.arch == '' || github.event.client_payload.arch == matrix.arch)) }}
 
     steps:
       - name: Checkout
@@ -45,15 +43,19 @@ jobs:
         with:
           node-version: 20
           cache: npm
+        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'repository_dispatch' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.arch == '' || github.event.inputs.arch == matrix.arch)) || (github.event_name == 'repository_dispatch' && (github.event.client_payload.arch == '' || github.event.client_payload.arch == matrix.arch)) }}
 
       - name: Install dependencies
         run: npm install --omit=optional
+        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'repository_dispatch' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.arch == '' || github.event.inputs.arch == matrix.arch)) || (github.event_name == 'repository_dispatch' && (github.event.client_payload.arch == '' || github.event.client_payload.arch == matrix.arch)) }}
 
       - name: Build Linux artifacts (deb)
         run: npx electron-builder -p never --linux deb --${{ matrix.arch }}
+        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'repository_dispatch' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.arch == '' || github.event.inputs.arch == matrix.arch)) || (github.event_name == 'repository_dispatch' && (github.event.client_payload.arch == '' || github.event.client_payload.arch == matrix.arch)) }}
 
       - name: Build Linux artifacts (AppImage)
         run: npx electron-builder -p never --linux AppImage --${{ matrix.arch }}
+        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'repository_dispatch' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.arch == '' || github.event.inputs.arch == matrix.arch)) || (github.event_name == 'repository_dispatch' && (github.event.client_payload.arch == '' || github.event.client_payload.arch == matrix.arch)) }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -62,6 +64,7 @@ jobs:
           path: |
             dist-electron/**/*.AppImage
             dist-electron/**/*.deb
+        if: ${{ github.event_name != 'workflow_dispatch' && github.event_name != 'repository_dispatch' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.arch == '' || github.event.inputs.arch == matrix.arch)) || (github.event_name == 'repository_dispatch' && (github.event.client_payload.arch == '' || github.event.client_payload.arch == matrix.arch)) }}
 
   release:
     runs-on: ubuntu-latest
